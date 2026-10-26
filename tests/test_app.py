@@ -1,0 +1,480 @@
+import json
+import os
+import tempfile
+from types import SimpleNamespace
+
+import pytest
+
+os.environ["WORKOUT_DB"] = os.path.join(tempfile.mkdtemp(), "test.db")
+os.environ["SESSION_SECRET"] = "test-secret"
+
+from fastapi.testclient import TestClient  # noqa: E402
+from fit_tool.fit_file import FitFile  # noqa: E402
+from fit_tool.profile.messages.workout_step_message import WorkoutStepMessage  # noqa: E402
+
+from app import llm, main  # noqa: E402
+from app.exporters import to_fit, to_zwo  # noqa: E402
+from app.main import app  # noqa: E402
+from app.workout import SPORTS, WorkoutError, stats, validate  # noqa: E402
+from app.importers import ImportError_, from_zwo  # noqa: E402
+
+THRESHOLD = {
+    "name": "4x8 Threshold",
+    "sport": "cycling",
+    "description": "Classic threshold session",
+    "steps": [
+        {"type": "warmup", "duration_s": 600, "intensity": 0.5, "intensity_end": 0.75},
+        {"type": "repeat", "count": 4, "steps": [
+            {"type": "steady", "duration_s": 480, "intensity": 0.97, "label": "Threshold"},
+            {"type": "rest", "duration_s": 180, "intensity": 0.55},
+        ]},
+        {"type": "cooldown", "duration_s": 600, "intensity": 0.6, "intensity_end": 0.4},
+    ],
+}
+
+RUN = {
+    "name": "6x400",
+    "sport": "running",
+    "description": "",
+    "steps": [
+        {"type": "warmup", "duration_s": 600, "intensity": 0.75, "intensity_end": 0.85},
+        {"type": "repeat", "count": 6, "steps": [
+            {"type": "steady", "distance_m": 400, "intensity": 1.1},
+            {"type": "rest", "duration_s": 90, "intensity": 0.6},
+        ]},
+    ],
+}
+
+
+# --- workout format -----------------------------------------------------------
+
+def test_stats_duration():
+    assert stats(validate(THRESHOLD))["duration_s"] == 600 + 4 * 660 + 600
+
+
+def test_validation_rejects_bad_steps():
+    bad = json.loads(json.dumps(THRESHOLD))
+    bad["steps"][0]["intensity"] = 9
+    with pytest.raises(WorkoutError):
+        validate(bad)
+    with pytest.raises(WorkoutError, match="distance_m"):
+        validate({**THRESHOLD, "steps": [{"type": "steady", "distance_m": 1000, "intensity": 1}]})
+
+
+# --- exporters --------------------------------------------------------------------
+
+def test_zwo_uses_intervals_block():
+    xml = to_zwo(validate(THRESHOLD)).decode()
+    assert "<sportType>bike</sportType>" in xml
+    assert 'IntervalsT Repeat="4" OnDuration="480" OffDuration="180" OnPower="0.97" OffPower="0.55"' in xml
+
+
+def test_zwo_running_converts_distance_to_time():
+    xml = to_zwo(validate(RUN, SPORTS), 270).decode()
+    assert "<sportType>run</sportType>" in xml
+    # 400 m at 110% of 4:30/km threshold speed ~= 98 s
+    assert 'SteadyState Duration="98" Power="1.1"' in xml
+
+
+def _fit_steps(data: bytes, tmp_path):
+    path = tmp_path / "w.fit"
+    path.write_bytes(data)
+    return [r.message for r in FitFile.from_file(str(path)).records if isinstance(r.message, WorkoutStepMessage)]
+
+
+def test_fit_cycling_repeat_and_power(tmp_path):
+    steps = _fit_steps(to_fit(validate(THRESHOLD)), tmp_path)
+    assert len(steps) == 5
+    assert (steps[1].custom_target_power_low, steps[1].custom_target_power_high) == (95, 99)
+    assert steps[3].duration_step == 1 and steps[3].target_repeat_steps == 4
+
+
+def test_fit_running_speed_targets(tmp_path):
+    steps = _fit_steps(to_fit(validate(RUN, SPORTS), 270), tmp_path)
+    assert steps[1].duration_distance == 400
+    assert 3.9 < steps[1].custom_target_speed_low < steps[1].custom_target_speed_high < 4.2
+
+
+# --- API with a fake Claude --------------------------------------------------------------
+
+class Block(SimpleNamespace):
+    def model_dump(self, exclude_none=False):
+        return dict(vars(self))
+
+
+class FakeClient:
+    def __init__(self, workout):
+        self.calls = []
+        self.workout = workout
+        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
+
+    def _create(self, **kwargs):
+        self.calls.append(kwargs)
+        last = kwargs["messages"][-1]["content"]
+        if isinstance(last, list) and last[0]["type"] == "tool_result":
+            return SimpleNamespace(stop_reason="end_turn", content=[Block(type="text", text="Here is your workout.")])
+        return SimpleNamespace(stop_reason="tool_use", content=[
+            Block(type="tool_use", id="tu_1", name="set_workout", input=self.workout),
+        ])
+
+
+@pytest.fixture
+def client(monkeypatch):
+    fake = FakeClient(THRESHOLD)
+    monkeypatch.setattr(llm.anthropic, "Anthropic", lambda: fake)
+    for name in ("APP_MODE", "ADMIN_EMAILS", "REQUIRE_INVITE", "DAILY_MESSAGE_LIMIT", "MONTHLY_BUDGET_USD"):
+        monkeypatch.delenv(name, raising=False)
+    main.security.reset_rate_limits()
+    with TestClient(app) as c:
+        c.fake = fake
+        yield c
+
+
+def test_accounts_and_chat_flow(client):
+    assert client.get("/api/me").status_code == 401
+    r = client.post("/api/register", json={"email": "Rider@Example.com", "password": "longenough"})
+    assert r.status_code == 200 and r.json()["email"] == "rider@example.com"
+    client.put("/api/me/profile", json={"ftp": 250, "threshold_pace_s_per_km": 270, "max_hr": None})
+
+    wid = client.post("/api/workouts").json()["id"]
+    view = client.post(f"/api/workouts/{wid}/chat", json={"message": "4x8 threshold"}).json()
+    assert view["reply"] == "Here is your workout."
+    assert view["workout"]["name"] == "4x8 Threshold"
+    assert [m["role"] for m in view["transcript"]] == ["user", "assistant"]
+    assert view["transcript"][0]["text"] == "4x8 threshold"
+    context = client.fake.calls[0]["messages"][0]["content"][0]["text"]
+    assert "FTP 250 W" in context and "Current workout" not in context
+
+    # A follow-up doesn't resend the workout: Claude already has it from its own tool call.
+    client.post(f"/api/workouts/{wid}/chat", json={"message": "longer"})
+    assert "Current workout" not in client.fake.calls[-2]["messages"][-1]["content"][0]["text"]
+
+    assert client.get(f"/api/workouts/{wid}/export/zwo").status_code == 200
+    fit = client.get(f"/api/workouts/{wid}/export/fit")
+    assert fit.status_code == 200 and fit.headers["content-disposition"].endswith('4x8_Threshold.fit"')
+
+    # A second account can't see the first one's workouts.
+    client.post("/api/logout")
+    client.post("/api/register", json={"email": "other@example.com", "password": "longenough"})
+    assert client.get(f"/api/workouts/{wid}").status_code == 404
+
+
+def test_login_rejects_wrong_password(client):
+    client.post("/api/register", json={"email": "a@b.co", "password": "longenough"})
+    client.post("/api/logout")
+    assert client.post("/api/login", json={"email": "a@b.co", "password": "nope-nope"}).status_code == 401
+    assert client.post("/api/login", json={"email": "a@b.co", "password": "longenough"}).status_code == 200
+
+
+# --- send to Zwift ---------------------------------------------------------------
+
+def test_send_to_zwift(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("ZWIFT_WORKOUTS_DIR", str(tmp_path))
+    client.post("/api/register", json={"email": "z@example.com", "password": "longenough"})
+    assert client.get("/api/integrations").json()["zwift"]["available"] is True
+
+    wid = client.post("/api/workouts").json()["id"]
+    assert client.post(f"/api/workouts/{wid}/send/zwift").status_code == 400  # empty workout
+    client.post(f"/api/workouts/{wid}/chat", json={"message": "4x8"})
+
+    # Someone else's file with the same name is kept; ours gets a suffix.
+    (tmp_path / "4x8_Threshold.zwo").write_text("<workout_file><author>Me</author></workout_file>")
+    r = client.post(f"/api/workouts/{wid}/send/zwift").json()
+    assert r["filename"] == "4x8_Threshold_1.zwo"
+    assert "Me" in (tmp_path / "4x8_Threshold.zwo").read_text()
+
+    # Sending again replaces our own earlier export instead of piling up copies.
+    assert client.post(f"/api/workouts/{wid}/send/zwift").json()["filename"] == "4x8_Threshold_1.zwo"
+    assert len(list(tmp_path.glob("*.zwo"))) == 2
+
+
+def test_send_to_zwift_without_folder(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("ZWIFT_WORKOUTS_DIR", str(tmp_path / "missing"))
+    client.post("/api/register", json={"email": "nz@example.com", "password": "longenough"})
+    assert client.get("/api/integrations").json()["zwift"]["available"] is False
+    wid = client.post("/api/workouts").json()["id"]
+    client.post(f"/api/workouts/{wid}/chat", json={"message": "4x8"})
+    r = client.post(f"/api/workouts/{wid}/send/zwift")
+    assert r.status_code == 400 and "Zwift workouts folder" in r.json()["detail"]
+
+
+# --- import -------------------------------------------------------------------------
+
+ZWIFT_FILE = b"""<workout_file>
+    <author>Someone</author>
+    <name>K3 Intervals</name>
+    <description>Low cadence work</description>
+    <sportType>bike</sportType>
+    <tags><tag name="Strength"/></tags>
+    <workout>
+        <Warmup Duration="600" PowerLow="0.40449998" PowerHigh="0.70449996" pace="0"/>
+        <IntervalsT Repeat="3" OnDuration="600" OffDuration="300" OnPower="0.90449995" OffPower="0.58449996" Cadence="55" CadenceResting="87">
+            <textevent timeoffset="10" message="Low cadence, stay seated"/>
+        </IntervalsT>
+        <SteadyState Duration="900" Power="0.6" pace="0">
+            <textevent timeoffset="0" message="Easy spin"/>
+            <textevent timeoffset="300" message="Halfway"/>
+        </SteadyState>
+        <FreeRide Duration="300" FlatRoad="0"/>
+        <Cooldown Duration="300" PowerLow="0.58" PowerHigh="0.40"/>
+    </workout>
+</workout_file>"""
+
+
+def test_from_zwo_reads_blocks_and_messages():
+    w = from_zwo(ZWIFT_FILE)
+    assert w["name"] == "K3 Intervals" and w["sport"] == "cycling" and w["tags"] == ["Strength"]
+    rep = w["steps"][1]
+    assert rep["count"] == 3 and rep["steps"][0]["cadence"] == 55 and rep["steps"][1]["cadence"] == 87
+    assert rep["text_events"] == [{"offset_s": 10, "message": "Low cadence, stay seated"}]
+    assert w["steps"][2]["text_events"][1] == {"offset_s": 300, "message": "Halfway"}
+    assert w["steps"][3] == {"type": "free", "duration_s": 300}
+    assert stats(w)["duration_s"] == 600 + 3 * 900 + 900 + 300 + 300
+    # Exporting and importing again gives the same workout.
+    assert from_zwo(to_zwo(w)) == w
+
+
+def test_from_zwo_rejects_non_workouts():
+    with pytest.raises(ImportError_):
+        from_zwo(b"<html></html>")
+    with pytest.raises(ImportError_):
+        from_zwo(b'<!DOCTYPE x [<!ENTITY a "aaaa">]><workout_file/>')
+
+
+def test_import_edit_and_send_back_with_backup(client, tmp_path, monkeypatch):
+    zwift_dir = tmp_path / "zwift"
+    zwift_dir.mkdir()
+    (zwift_dir / "K3.zwo").write_bytes(ZWIFT_FILE)
+    monkeypatch.setenv("ZWIFT_WORKOUTS_DIR", str(zwift_dir))
+    monkeypatch.setattr(main, "ZWIFT_BACKUPS", tmp_path / "backups")
+    client.post("/api/register", json={"email": "imp@example.com", "password": "longenough"})
+
+    listing = client.get("/api/zwift/workouts").json()
+    assert listing[0]["filename"] == "K3.zwo" and listing[0]["name"] == "K3 Intervals"
+    assert client.post("/api/import/zwift", json={"filename": "../secret.zwo"}).status_code == 400
+
+    view = client.post("/api/import/zwift", json={"filename": "K3.zwo"}).json()
+    assert view["source_filename"] == "K3.zwo" and view["workout"]["name"] == "K3 Intervals"
+
+    # The first chat turn about an imported workout includes it, so Claude can edit it.
+    client.post(f"/api/workouts/{view['id']}/chat", json={"message": "make it 4 reps"})
+    assert '"K3 Intervals"' in client.fake.calls[0]["messages"][0]["content"][0]["text"]
+
+    r = client.post(f"/api/workouts/{view['id']}/send/zwift").json()
+    assert r["replaced"] is True and r["filename"] == "K3.zwo"
+    assert b"4x8 Threshold" in (zwift_dir / "K3.zwo").read_bytes()  # the fake Claude's edit
+    backups = list((tmp_path / "backups").glob("K3.*.zwo"))
+    assert len(backups) == 1 and backups[0].read_bytes() == ZWIFT_FILE
+    assert len(list(zwift_dir.glob("*.zwo"))) == 1
+
+
+def test_import_uploaded_file(client):
+    client.post("/api/register", json={"email": "up@example.com", "password": "longenough"})
+    r = client.post("/api/import/file", files={"file": ("k3.zwo", ZWIFT_FILE, "application/xml")})
+    assert r.status_code == 200 and r.json()["source_filename"] is None
+    bad = client.post("/api/import/file", files={"file": ("k3.zwo", b"not xml", "application/xml")})
+    assert bad.status_code == 400
+    other = client.post("/api/import/file", files={"file": ("notes.txt", b"hello", "text/plain")})
+    assert other.status_code == 400 and ".fit" in other.json()["detail"]
+
+
+# --- running is switched off until v2 ----------------------------------------------------
+
+def test_running_is_disabled(client):
+    with pytest.raises(WorkoutError, match="running"):
+        validate(RUN)
+    with pytest.raises(ImportError_, match="Running isn't supported"):
+        from_zwo(to_zwo(validate(RUN, SPORTS), 270))
+
+    client.post("/api/register", json={"email": "run@example.com", "password": "longenough"})
+    user_id = main.db.get_user_by_email("run@example.com")["id"]
+    main.db.create_workout(user_id, validate(RUN, SPORTS))  # e.g. created before running was switched off
+    draft = client.post("/api/workouts").json()["id"]
+    assert [w["id"] for w in client.get("/api/workouts").json()] == [draft]
+
+
+# --- Garmin .fit import ----------------------------------------------------------------
+
+from fit_tool.fit_file_builder import FitFileBuilder  # noqa: E402
+from fit_tool.profile.messages.file_id_message import FileIdMessage  # noqa: E402
+from fit_tool.profile.messages.workout_message import WorkoutMessage  # noqa: E402
+from fit_tool.profile.profile_type import (  # noqa: E402
+    FileType, Intensity, Sport, WorkoutStepDuration, WorkoutStepTarget,
+)
+
+from app.importers import from_fit  # noqa: E402
+
+
+def _garmin_fit(steps, sport=Sport.CYCLING, name="Garmin Workout"):
+    """Build a workout .fit file the way Garmin Connect does (watt targets, zones, open steps)."""
+    fid = FileIdMessage()
+    fid.type = FileType.WORKOUT
+    fid.manufacturer = 1
+    fid.product = 0
+    wkt = WorkoutMessage()
+    wkt.workout_name = name
+    wkt.sport = sport
+    wkt.num_valid_steps = len(steps)
+    msgs = []
+    for i, (intensity, dur, target, low, high, repeat) in enumerate(steps):
+        m = WorkoutStepMessage()
+        m.message_index = i
+        if repeat:
+            m.duration_type = WorkoutStepDuration.REPEAT_UNTIL_STEPS_CMPLT
+            m.duration_step = repeat[0]
+            m.target_type = WorkoutStepTarget.OPEN
+            m.target_repeat_steps = repeat[1]
+        else:
+            m.intensity = intensity
+            if dur is None:
+                m.duration_type = WorkoutStepDuration.OPEN
+            else:
+                m.duration_type = WorkoutStepDuration.TIME
+                m.duration_time = float(dur)
+            m.target_type = target
+            if target == WorkoutStepTarget.POWER and low is not None and high is None:
+                m.target_value = low  # power zone
+            elif target == WorkoutStepTarget.POWER:
+                m.target_value = 0
+                m.custom_target_power_low = low
+                m.custom_target_power_high = high
+            elif target == WorkoutStepTarget.HEART_RATE:
+                m.target_value = low  # HR zone
+            else:
+                m.target_value = 0
+        msgs.append(m)
+    b = FitFileBuilder(auto_define=True, min_string_size=50)
+    b.add(fid)
+    b.add(wkt)
+    b.add_all(msgs)
+    return b.build().to_bytes()
+
+
+GARMIN = [
+    (Intensity.WARMUP, 600, WorkoutStepTarget.POWER, 2, None, None),             # power zone 2
+    (Intensity.ACTIVE, 300, WorkoutStepTarget.POWER, 1250, 1270, None),          # 250-270 W
+    (Intensity.RECOVERY, 120, WorkoutStepTarget.HEART_RATE, 2, None, None),      # HR zone 2
+    (None, None, None, None, None, (1, 4)),                                       # repeat steps 1-2 4x
+    (Intensity.COOLDOWN, None, WorkoutStepTarget.OPEN, None, None, None),        # until lap button
+]
+
+
+def test_from_fit_garmin_style():
+    w = from_fit(_garmin_fit(GARMIN), ftp=260)
+    assert w["name"] == "Garmin Workout"
+    warm, rep, cool = w["steps"]
+    assert warm["intensity"] == 0.65 and warm["label"] == "Power zone 2"
+    assert rep["count"] == 4 and rep["steps"][0]["intensity"] == round((250 / 260 + 270 / 260) / 2, 3)
+    assert rep["steps"][1]["label"] == "HR zone 2"
+    assert cool["type"] == "free" and cool["label"] == "Until lap button"
+
+
+def test_from_fit_errors():
+    with pytest.raises(ImportError_, match="Set your FTP"):
+        from_fit(_garmin_fit(GARMIN), ftp=None)
+    with pytest.raises(ImportError_, match="running"):
+        from_fit(_garmin_fit(GARMIN, sport=Sport.RUNNING), ftp=260)
+    with pytest.raises(ImportError_, match="isn't a valid .fit"):
+        from_fit(b"\x0e\x10" + b"\x00" * 6 + b".FIT" + b"garbage", ftp=260)
+
+
+def test_fit_round_trip_and_upload(client):
+    w = validate(THRESHOLD)
+    assert stats(from_fit(to_fit(w), ftp=None)) == stats(w)
+    client.post("/api/register", json={"email": "fit@example.com", "password": "longenough"})
+    r = client.post("/api/import/file", files={"file": ("THRESH.FIT", to_fit(w), "application/octet-stream")})
+    assert r.status_code == 200 and r.json()["workout"]["name"] == "4x8 Threshold"
+
+
+# --- hosting: mode, invites, limits, security ---------------------------------------------
+
+def test_hosted_mode_disables_zwift_folder(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "hosted")
+    monkeypatch.setenv("REQUIRE_INVITE", "0")
+    monkeypatch.setenv("ZWIFT_WORKOUTS_DIR", str(tmp_path))
+    client.post("/api/register", json={"email": "h@example.com", "password": "longenough"})
+    assert client.get("/api/integrations").json()["zwift"]["available"] is False
+    assert client.get("/api/config").json()["hosted"] is True
+    wid = client.post("/api/workouts").json()["id"]
+    client.post(f"/api/workouts/{wid}/chat", json={"message": "4x8"})
+    r = client.post(f"/api/workouts/{wid}/send/zwift")
+    assert r.status_code == 400 and "Download" in r.json()["detail"]
+    assert not list(tmp_path.iterdir())
+    assert client.get(f"/api/workouts/{wid}/export/zwo").status_code == 200
+
+
+def test_invites(client, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "hosted")
+    monkeypatch.setenv("ADMIN_EMAILS", "boss@example.com")
+    assert client.get("/api/config").json()["invites_required"] is True
+
+    no_code = client.post("/api/register", json={"email": "x@example.com", "password": "longenough"})
+    assert no_code.status_code == 400 and "invite" in no_code.json()["detail"]
+
+    admin = client.post("/api/register", json={"email": "boss@example.com", "password": "longenough"})
+    assert admin.json()["is_admin"] is True
+    code = client.post("/api/admin/invites", json={"note": "Anna"}).json()["code"]
+    client.post("/api/logout")
+
+    wrong = client.post("/api/register", json={"email": "anna@example.com", "password": "longenough", "invite_code": "NOPE-NOPE"})
+    assert wrong.status_code == 400
+    ok = client.post("/api/register", json={"email": "anna@example.com", "password": "longenough", "invite_code": code.lower()})
+    assert ok.status_code == 200 and ok.json()["is_admin"] is False
+    assert client.get("/api/admin/invites").status_code == 403
+    client.post("/api/logout")
+
+    reused = client.post("/api/register", json={"email": "ben@example.com", "password": "longenough", "invite_code": code})
+    assert reused.status_code == 400 and "already been used" in reused.json()["detail"]
+    assert main.db.get_user_by_email("ben@example.com") is None  # nothing half-created
+
+    client.post("/api/login", json={"email": "boss@example.com", "password": "longenough"})
+    invite = client.get("/api/admin/invites").json()[0]
+    assert invite["used_by_email"] == "anna@example.com" and invite["note"] == "Anna"
+
+
+class _Usage(SimpleNamespace):
+    pass
+
+
+def test_daily_limit_and_budget(client, monkeypatch):
+    monkeypatch.setenv("DAILY_MESSAGE_LIMIT", "2")
+    client.post("/api/register", json={"email": "lim@example.com", "password": "longenough"})
+    wid = client.post("/api/workouts").json()["id"]
+
+    # Every fake response used 1M input + 1M output tokens: $0.60 per call on Haiku.
+    original = client.fake._create
+    def with_usage(**kw):
+        r = original(**kw)
+        r.usage = _Usage(input_tokens=1_000_000, output_tokens=1_000_000)
+        return r
+    client.fake.beta.messages.create = with_usage
+    monkeypatch.setenv("CLAUDE_MODEL", "claude-haiku-5-5")
+
+    first = client.post(f"/api/workouts/{wid}/chat", json={"message": "a"}).json()
+    assert first["messages_left_today"] == 1
+    client.post(f"/api/workouts/{wid}/chat", json={"message": "b"})
+    blocked = client.post(f"/api/workouts/{wid}/chat", json={"message": "c"})
+    assert blocked.status_code == 429 and "2 chat messages" in blocked.json()["detail"]
+
+    # Two turns x two API calls x $0.60 = $2.40 spent this month.
+    monkeypatch.setenv("DAILY_MESSAGE_LIMIT", "100")
+    monkeypatch.setenv("MONTHLY_BUDGET_USD", "2")
+    paused = client.post(f"/api/workouts/{wid}/chat", json={"message": "d"})
+    assert paused.status_code == 503 and "budget" in paused.json()["detail"]
+
+
+def test_login_rate_limit(client):
+    for _ in range(10):
+        client.post("/api/login", json={"email": "nobody@example.com", "password": "wrong-wrong"})
+    r = client.post("/api/login", json={"email": "nobody@example.com", "password": "wrong-wrong"})
+    assert r.status_code == 429
+
+
+def test_security_headers_and_cross_site_block(client):
+    r = client.get("/healthz")
+    assert r.status_code == 200 and r.headers["x-frame-options"] == "DENY"
+    assert "default-src 'self'" in r.headers["content-security-policy"]
+    evil = client.post("/api/login", json={"email": "a@b.co", "password": "x"}, headers={"Origin": "https://evil.example"})
+    assert evil.status_code == 403
+    same = client.post("/api/login", json={"email": "nobody2@example.com", "password": "longenough"}, headers={"Origin": "http://testserver"})
+    assert same.status_code == 401

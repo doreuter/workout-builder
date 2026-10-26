@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Workout Builder</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <!-- Sign in / register -->
+  <section id="auth" class="auth" hidden>
+    <form id="auth-form" class="card auth-card">
+      <h1>Workout Builder</h1>
+      <p class="muted">Describe a ride in plain words. Get a chart and files for Zwift and Garmin.</p>
+      <label>Email <input name="email" type="email" autocomplete="email" required></label>
+      <label>Password <input name="password" type="password" autocomplete="current-password" minlength="8" required></label>
+      <label id="invite-field" hidden>Invite code <input name="invite" autocomplete="off" placeholder="e.g. ABCD-EFGH"></label>
+      <p id="auth-error" class="error" hidden></p>
+      <button type="submit" class="primary" id="auth-submit">Sign in</button>
+      <p class="muted small">
+        <span id="auth-switch-text">No account yet?</span>
+        <button type="button" class="link" id="auth-switch">Create one</button>
+      </p>
+    </form>
+  </section>
+
+  <!-- Main app -->
+  <div id="app" class="app" hidden>
+    <header class="topbar">
+      <button class="icon-btn" id="menu-btn" aria-label="Show workouts">☰</button>
+      <strong class="brand">Workout Builder</strong>
+      <span class="spacer"></span>
+      <span id="user-email" class="muted small hide-sm"></span>
+      <button id="settings-btn">Settings</button>
+      <button id="logout-btn">Sign out</button>
+    </header>
+
+    <aside id="sidebar" class="sidebar">
+      <button class="primary wide" id="new-btn">+ New workout</button>
+      <button class="wide import-btn" id="import-btn">Import workout</button>
+      <ul id="workout-list" class="workout-list"></ul>
+    </aside>
+
+    <main class="main">
+      <section class="chat card">
+        <div id="messages" class="messages"></div>
+        <form id="chat-form" class="chat-form">
+          <textarea id="chat-input" rows="2" placeholder="e.g. 15 min warm-up, 4×8 min at threshold with 3 min easy, cool down" required></textarea>
+          <button type="submit" class="primary" id="send-btn">Send</button>
+        </form>
+        <p id="quota" class="quota muted small" hidden></p>
+      </section>
+
+      <section class="workout card" id="workout-panel">
+        <div id="workout-empty" class="empty">
+          <p class="muted">Your workout appears here.</p>
+        </div>
+        <div id="workout-view" hidden>
+          <div class="workout-head">
+            <div>
+              <h2 id="w-name"></h2>
+              <p id="w-desc" class="muted small"></p>
+              <p id="w-source" class="source small" hidden></p>
+            </div>
+            <span id="w-sport" class="badge"></span>
+          </div>
+          <div class="stats">
+            <div><span class="stat-label">Duration</span><span id="s-dur" class="stat"></span></div>
+            <div><span class="stat-label">IF</span><span id="s-if" class="stat"></span></div>
+            <div><span class="stat-label" id="s-tss-label">TSS</span><span id="s-tss" class="stat"></span></div>
+          </div>
+          <div class="chart-wrap">
+            <svg id="chart" viewBox="0 0 800 260" preserveAspectRatio="none" role="img" aria-label="Workout profile"></svg>
+            <div id="tooltip" class="tooltip" hidden></div>
+          </div>
+          <div class="legend" id="legend"></div>
+          <div class="exports">
+            <button class="primary" id="send-zwift" hidden>Send to Zwift</button>
+            <a class="btn" id="export-zwo">Download for Zwift (.zwo)</a>
+            <a class="btn" id="export-fit">Download for Garmin (.fit)</a>
+          </div>
+          <p id="export-hint" class="muted small hint" hidden>
+            Zwift: put the .zwo file in <code>Documents/Zwift/Workouts/&lt;your Zwift ID&gt;</code> on the computer you ride Zwift on.
+            Garmin: connect your watch by USB and copy the .fit file to <code>GARMIN/NewFiles</code>.
+          </p>
+          <p id="export-error" class="error small" hidden></p>
+          <p id="send-status" class="success small" hidden></p>
+          <details class="steps">
+            <summary>Steps</summary>
+            <ol id="step-list"></ol>
+          </details>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="settings">
+    <form method="dialog" id="settings-form" class="settings-form">
+      <h2>Settings</h2>
+      <p class="muted small">Used to show watts next to percentages and to give Claude your numbers.</p>
+      <label>FTP (watts) <input name="ftp" type="number" min="50" max="700" placeholder="e.g. 250"></label>
+      <!-- Threshold pace returns with running in v2; the hidden field keeps the saved value. -->
+      <input name="pace" type="hidden">
+      <label>Max heart rate (bpm) <input name="max_hr" type="number" min="100" max="230" placeholder="e.g. 188"></label>
+      <p id="settings-error" class="error small" hidden></p>
+      <div class="row">
+        <button value="cancel" formnovalidate>Cancel</button>
+        <button value="save" class="primary" id="settings-save">Save</button>
+      </div>
+      <section id="admin-invites" class="admin" hidden>
+        <h3>Invites</h3>
+        <p class="muted small">Each code lets one person create an account.</p>
+        <div class="invite-new">
+          <input id="invite-note" placeholder="Who is it for? (optional)" maxlength="100">
+          <button type="button" id="invite-create">Create invite</button>
+        </div>
+        <ul id="invite-list" class="invite-list"></ul>
+      </section>
+    </form>
+  </dialog>
+
+  <dialog id="import">
+    <div class="import-dialog">
+      <div class="dialog-head">
+        <h2>Import a workout</h2>
+        <button type="button" class="icon-btn" id="import-close" aria-label="Close">✕</button>
+      </div>
+      <section id="import-zwift">
+        <h3>From your Zwift folder</h3>
+        <input id="import-search" type="search" placeholder="Search your Zwift workouts">
+        <ul id="import-list" class="import-list"></ul>
+      </section>
+      <section>
+        <h3>Upload a workout file</h3>
+        <p class="muted small">A Zwift workout (.zwo), e.g. from whatsonzwift.com, or a Garmin workout (.fit), e.g. from your watch's <code>GARMIN/Workouts</code> folder.</p>
+        <input id="import-file" type="file" accept=".zwo,.fit,.FIT">
+      </section>
+      <p id="import-error" class="error small" hidden></p>
+    </div>
+  </dialog>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
