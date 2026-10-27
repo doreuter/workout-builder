@@ -20,8 +20,7 @@ Keep the answers honest: Garmin's terms make the developer responsible for every
    `hello@vibegrind.app`. A custom domain looks far more credible to Garmin than `….onrender.com`.
    `vibegrind.app` looked unregistered on 2026-10-27 (`vibegrind.com` is taken by someone else).
    The landing page and legal pages already use `hello@vibegrind.app`; change it if you pick another address.
-3. **Fill the placeholders** on `/privacy`, `/terms` and `/imprint` (they're highlighted in yellow), then
-   remove the "Draft" notes. Have a lawyer look at the privacy policy: it covers health data (Art. 9 GDPR).
+3. **Legal pages: done.** Reviewed by a lawyer and published without draft notes on 2026-10-27.
 4. **Server region: done.** `render.yaml` now creates the service in Render's **Frankfurt** region (EU).
    The privacy policy says so.
 4b. **EU representative: Dominik Reuter, Kobenbachweg 5, 88090 Immenstaad, Germany** (in the privacy policy).
