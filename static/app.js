@@ -814,6 +814,8 @@ $("#settings-btn").addEventListener("click", () => {
   f.pace.value = p ? `${Math.floor(p / 60)}:${String(p % 60).padStart(2, "0")}` : "";
   f.max_hr.value = state.user.max_hr ?? "";
   $("#settings-error").hidden = true;
+  $("#garmin-status-box").hidden = !state.user.garmin_status;
+  $("#garmin-status").textContent = state.user.garmin_status || "";
   $("#admin-invites").hidden = !state.user.is_admin;
   if (state.user.is_admin) loadInvites();
   $("#settings").showModal();

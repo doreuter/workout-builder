@@ -27,15 +27,30 @@ def api_key() -> str | None:
 
 
 def owner_email() -> str | None:
+    """GARMIN_OWNER_EMAIL, or the admin when there's exactly one (with several, it must be explicit)."""
     explicit = (os.environ.get("GARMIN_OWNER_EMAIL") or "").strip().lower()
     if explicit:
         return explicit
-    admins = sorted(config.admin_emails())
-    return admins[0] if admins else None
+    admins = config.admin_emails()
+    return next(iter(admins)) if len(admins) == 1 else None
 
 
 def is_owner(user) -> bool:
     return api_key() is not None and user["email"] == owner_email()
+
+
+def status(user) -> str:
+    """Why the Readiness dashboard is or isn't shown, in words an admin can act on."""
+    if api_key() is None:
+        return "Off: GARMIN_PERSONAL_API_KEY isn't set on the server."
+    owner = owner_email()
+    if owner is None:
+        if len(config.admin_emails()) > 1:
+            return "Off: ADMIN_EMAILS lists several addresses, so set GARMIN_OWNER_EMAIL to the account that should see it."
+        return "Off: no owner. Set ADMIN_EMAILS or GARMIN_OWNER_EMAIL to your sign-in email."
+    if user["email"] != owner:
+        return f"Off for this account: the dashboard belongs to {owner}, but you're signed in as {user['email']}."
+    return "On: the Readiness tab uses your Garmin key."
 
 
 def _client():

@@ -79,7 +79,7 @@ def _is_admin(user) -> bool:
 
 
 def _user_json(user) -> dict:
-    return {
+    out = {
         "email": user["email"],
         "ftp": user["ftp"],
         "threshold_pace_s_per_km": user["threshold_pace_s_per_km"],
@@ -88,6 +88,9 @@ def _user_json(user) -> dict:
         "messages_left_today": _messages_left(user),
         "garmin": garmin.is_owner(user),
     }
+    if out["is_admin"] or out["garmin"]:
+        out["garmin_status"] = garmin.status(user)  # shown in Settings to help set it up
+    return out
 
 
 @app.get("/api/config")

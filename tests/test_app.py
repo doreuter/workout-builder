@@ -590,3 +590,19 @@ def test_page_and_static_files_are_revalidated(client):
     r = client.get("/static/app.js")
     assert r.headers["cache-control"] == "no-cache" and r.headers.get("etag")
     assert client.get("/healthz").headers.get("cache-control") != "no-cache"
+
+
+def test_garmin_status_explains_why_it_is_off(client, monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "zed@example.com, me@example.com")
+    monkeypatch.delenv("GARMIN_OWNER_EMAIL", raising=False)
+    monkeypatch.delenv("GARMIN_PERSONAL_API_KEY", raising=False)
+    creds = {"email": "me@example.com", "password": "longenough"}
+    if client.post("/api/register", json=creds).status_code != 200:
+        client.post("/api/login", json=creds)
+    assert "isn't set" in client.get("/api/me").json()["garmin_status"]
+    monkeypatch.setenv("GARMIN_PERSONAL_API_KEY", "k")
+    me = client.get("/api/me").json()
+    assert me["garmin"] is False and "several addresses" in me["garmin_status"]  # no silent pick
+    monkeypatch.setenv("ADMIN_EMAILS", "me@example.com")
+    me = client.get("/api/me").json()
+    assert me["garmin"] is True and me["garmin_status"].startswith("On")
