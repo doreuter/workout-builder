@@ -103,6 +103,16 @@ For a workout imported from the Zwift folder, **Update in Zwift** overwrites tha
 
 Zwift-only display attributes (`pace`, `OverUnder`, `FlatRoad`) aren't carried over.
 
+### Send to Zwift from the online app
+
+The hosted server can't reach anyone's computer, but in **Chrome, Edge, Brave and Opera on desktop** the
+browser can: the user picks their Zwift folder once (`Documents/Zwift/Workouts/<number>`; picking `Zwift` or
+`Workouts` works too when there's one account), and **Send to Zwift** then saves into it directly
+(`static/zwift-folder.js`, File System Access API). The folder handle stays in the browser's IndexedDB; the
+server never sees it. Earlier exports of ours are replaced, other files never are (they get `_1`, `_2`…).
+**Import workout** also lists the workouts in that folder. In Safari and Firefox, and on phones and tablets,
+the app shows device-specific instructions for the downloaded files instead.
+
 ## Readiness dashboard (Garmin)
 
 The **Readiness** tab shows your Garmin data: overnight HRV against your baseline, resting heart rate, sleep, Body Battery, and training load from your activities, plus 30-day trends and recent activities.

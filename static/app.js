@@ -8,7 +8,8 @@ const state = {
   currentId: null,
   view: null,
   registering: false,
-  zwiftAvailable: false,
+  zwiftAvailable: false, // the server can reach the Zwift folder (app running on your own computer)
+  browserZwift: false,   // this browser can save into a Zwift folder the user picked
 };
 
 const EXAMPLES = [
@@ -216,6 +217,9 @@ async function startApp() {
   showView("workouts");
   const integrations = await api("/api/integrations").catch(() => ({}));
   state.zwiftAvailable = !!integrations.zwift?.available;
+  state.device = deviceKind();
+  state.browserZwift = !state.zwiftAvailable && ZwiftFolder.supported && !["phone", "tablet"].includes(state.device);
+  if (state.browserZwift) await ZwiftFolder.load();
   await loadList();
   if (state.workouts.length) await openWorkout(state.workouts[0].id);
   else await newWorkout();
@@ -362,8 +366,8 @@ function renderWorkout() {
   $("#workout-view").hidden = !workout;
   $("#export-error").hidden = true;
   $("#send-status").hidden = true;
-  $("#send-zwift").hidden = !state.zwiftAvailable;
-  $("#export-hint").hidden = state.zwiftAvailable;
+  $("#send-zwift").hidden = !(state.zwiftAvailable || state.browserZwift);
+  renderZwiftHelp();
   if (!workout) return;
 
   $("#w-name").textContent = workout.name;
@@ -499,12 +503,91 @@ function renderSteps(workout) {
   }
 }
 
+function zwiftPath() {
+  return state.device === "windows" ? "Documents\\Zwift\\Workouts\\" : "Documents/Zwift/Workouts/";
+}
+
+// The line under the export buttons: where "Send to Zwift" saves, and how to get files onto devices.
+function renderZwiftHelp() {
+  const line = $("#zwift-folder-line");
+  line.hidden = !state.browserZwift;
+  if (state.browserZwift) {
+    line.replaceChildren();
+    if (ZwiftFolder.folderName) {
+      line.append(`Send to Zwift saves into your Zwift folder `, el("code", {}, ZwiftFolder.folderName), " · ");
+      const change = el("button", { type: "button", class: "link" }, "Change folder");
+      change.addEventListener("click", () => connectZwiftFolder());
+      line.append(change);
+    } else {
+      line.append("First time: Send to Zwift asks you to pick your Zwift folder once: ",
+        el("code", {}, `${zwiftPath()}<the folder with a number>`), ".");
+    }
+  }
+
+  const hint = $("#export-hint");
+  hint.hidden = state.zwiftAvailable;
+  if (state.zwiftAvailable) return;
+  hint.replaceChildren();
+  const garmin = ["phone", "tablet"].includes(state.device)
+    ? "Garmin: on a computer, copy the .fit file to GARMIN/NewFiles on your watch or Edge (USB)."
+    : "Garmin: connect your watch or Edge by USB and copy the .fit file to GARMIN/NewFiles.";
+  if (state.device === "phone" || state.device === "tablet") {
+    hint.append("Zwift: put the .zwo file into the Zwift folder on the computer you use Zwift on; it then syncs to your iPad, Apple TV or phone. ", garmin, " ");
+  } else if (!state.browserZwift) {
+    hint.append("Zwift: move the .zwo file to ", el("code", {}, `${zwiftPath()}<your Zwift ID>`), " and restart Zwift. ", garmin,
+      " Tip: in Chrome or Edge, Send to Zwift saves it there for you. ");
+  } else {
+    hint.append(garmin, " ");
+  }
+  const guide = el("a", { href: "/#ride-it", target: "_blank", rel: "noopener" }, "Step-by-step guide");
+  hint.append(guide);
+}
+
+async function connectZwiftFolder() {
+  try {
+    await ZwiftFolder.connect();
+    renderZwiftHelp();
+    renderZwiftSettings();
+    return true;
+  } catch (err) {
+    if (err.name === "AbortError") return false; // picker closed
+    $("#export-error").textContent = err.message;
+    $("#export-error").hidden = false;
+    return false;
+  }
+}
+
+async function sendToZwiftFromBrowser() {
+  if (!ZwiftFolder.folderName && !(await connectZwiftFolder())) return null;
+  const res = await fetch(`/api/workouts/${state.currentId}/export/zwo`);
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || "Export failed.");
+  const filename = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") || "")?.[1] || "workout.zwo";
+  try {
+    return await ZwiftFolder.write(filename, await res.blob());
+  } catch (err) {
+    if (err.name === "NotFoundError") {
+      await ZwiftFolder.disconnect();
+      renderZwiftHelp();
+      throw new Error("Your Zwift folder couldn't be found anymore. Click Send to Zwift again to pick it.");
+    }
+    throw err;
+  }
+}
+
 $("#send-zwift").addEventListener("click", async () => {
   const btn = $("#send-zwift");
   $("#export-error").hidden = true;
   $("#send-status").hidden = true;
   btn.disabled = true;
   try {
+    if (state.browserZwift) {
+      const name = await sendToZwiftFromBrowser();
+      if (name) {
+        $("#send-status").textContent = `Saved to your Zwift folder as ${name}. Restart Zwift, then find it under Training → Workouts → Custom Workouts.`;
+        $("#send-status").hidden = false;
+      }
+      return;
+    }
     const res = await api(`/api/workouts/${state.currentId}/send/zwift`, { method: "POST" });
     $("#send-status").textContent = (res.replaced
       ? `Updated ${res.filename} in Zwift (the previous version was backed up).`
@@ -573,13 +656,17 @@ function renderImportList() {
     const btn = el("button", { type: "button" });
     const icon = f.sport === "running" ? "🏃 " : f.sport === "cycling" ? "🚴 " : "";
     btn.append(el("span", {}, icon + f.name));
-    btn.append(el("span", { class: "meta" }, f.error ? "can't import" : fmtDuration(f.duration_s)));
+    btn.append(el("span", { class: "meta" }, f.error ? "can't import" : f.duration_s ? fmtDuration(f.duration_s) : ""));
     if (f.error) {
       btn.disabled = true;
       btn.title = f.error;
     }
-    btn.addEventListener("click", () =>
-      openImported(api("/api/import/zwift", { method: "POST", body: { filename: f.filename } })));
+    btn.addEventListener("click", () => {
+      if (!f.file) return openImported(api("/api/import/zwift", { method: "POST", body: { filename: f.filename } }));
+      const form = new FormData();
+      form.append("file", f.file);
+      openImported(api("/api/import/file", { method: "POST", form }));
+    });
     li.append(btn);
     list.append(li);
   }
@@ -589,8 +676,9 @@ $("#import-btn").addEventListener("click", async () => {
   showImportError("");
   $("#import-search").value = "";
   $("#import-file").value = "";
-  $("#import-zwift").hidden = !state.zwiftAvailable;
+  $("#import-zwift").hidden = !(state.zwiftAvailable || state.browserZwift);
   $("#import").showModal();
+  if (state.browserZwift) loadBrowserZwiftList();
   if (state.zwiftAvailable) {
     $("#import-list").replaceChildren(el("li", { class: "empty-row" }, "Loading…"));
     try {
@@ -600,6 +688,33 @@ $("#import-btn").addEventListener("click", async () => {
       showImportError(err.message);
     }
   }
+});
+
+// Workouts from the folder this browser is connected to: read here, uploaded only when picked.
+async function loadBrowserZwiftList() {
+  const connected = !!ZwiftFolder.folderName;
+  $("#import-connect").hidden = connected;
+  $("#import-search").hidden = !connected;
+  $("#import-list").hidden = !connected;
+  if (!connected) return;
+  $("#import-list").replaceChildren(el("li", { class: "empty-row" }, "Loading…"));
+  try {
+    const files = await ZwiftFolder.listWorkouts();
+    zwiftFiles = await Promise.all(files.map(async (file) => {
+      const doc = new DOMParser().parseFromString(await file.text(), "application/xml");
+      const name = doc.querySelector("workout_file > name")?.textContent?.trim() || file.name.replace(/\.zwo$/i, "");
+      const run = doc.querySelector("workout_file > sportType")?.textContent?.trim().toLowerCase() === "run";
+      return { file, filename: file.name, name, sport: run ? "running" : "cycling", error: run ? "Running isn't supported yet" : null };
+    }));
+    zwiftFiles.sort((a, b) => a.name.localeCompare(b.name));
+    renderImportList();
+  } catch (err) {
+    showImportError(err.message);
+  }
+}
+
+$("#import-connect-btn").addEventListener("click", async () => {
+  if (await connectZwiftFolder()) loadBrowserZwiftList();
 });
 
 $("#import-close").addEventListener("click", () => $("#import").close());
@@ -874,6 +989,7 @@ $("#settings-btn").addEventListener("click", () => {
   f.pace.value = p ? `${Math.floor(p / 60)}:${String(p % 60).padStart(2, "0")}` : "";
   f.max_hr.value = state.user.max_hr ?? "";
   $("#settings-error").hidden = true;
+  renderZwiftSettings();
   $("#garmin-status-box").hidden = !state.user.garmin_status;
   $("#garmin-status").textContent = state.user.garmin_status || "";
   $("#admin-invites").hidden = !state.user.is_admin;
@@ -890,6 +1006,24 @@ $("#settings-btn").addEventListener("click", () => {
     }).catch(() => {});
   }
   $("#settings").showModal();
+});
+
+function renderZwiftSettings() {
+  $("#zwift-folder-box").hidden = !state.browserZwift;
+  if (!state.browserZwift) return;
+  const name = ZwiftFolder.folderName;
+  $("#zwift-folder-status").textContent = name
+    ? `Connected in this browser: folder ${name}. Send to Zwift saves workouts there.`
+    : "Not connected. Connect your Zwift folder so Send to Zwift can save workouts straight into it.";
+  $("#zwift-folder-connect").textContent = name ? "Change folder" : "Connect";
+  $("#zwift-folder-disconnect").hidden = !name;
+}
+
+$("#zwift-folder-connect").addEventListener("click", () => connectZwiftFolder());
+$("#zwift-folder-disconnect").addEventListener("click", async () => {
+  await ZwiftFolder.disconnect();
+  renderZwiftSettings();
+  renderZwiftHelp();
 });
 
 async function loadInvites() {

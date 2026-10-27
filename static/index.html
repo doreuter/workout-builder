@@ -158,10 +158,8 @@
             <a class="btn" id="export-zwo">Download for Zwift (.zwo)</a>
             <a class="btn" id="export-fit">Download for Garmin (.fit)</a>
           </div>
-          <p id="export-hint" class="muted small hint" hidden>
-            Zwift: put the .zwo file in <code>Documents/Zwift/Workouts/&lt;your Zwift ID&gt;</code> on the computer you ride Zwift on.
-            Garmin: connect your watch by USB and copy the .fit file to <code>GARMIN/NewFiles</code>.
-          </p>
+          <p id="zwift-folder-line" class="muted small hint" hidden></p>
+          <p id="export-hint" class="muted small hint" hidden></p>
           <p id="export-error" class="error small" hidden></p>
           <p id="send-status" class="success small" hidden></p>
           <details class="steps">
@@ -197,6 +195,14 @@
           <button type="button" class="danger" id="delete-btn">Delete my account</button>
           <p id="delete-msg" class="small error" hidden></p>
         </details>
+      </section>
+      <section id="zwift-folder-box" class="admin" hidden>
+        <h3>Zwift folder</h3>
+        <p class="small" id="zwift-folder-status"></p>
+        <div class="row-left">
+          <button type="button" id="zwift-folder-connect">Connect</button>
+          <button type="button" id="zwift-folder-disconnect" hidden>Disconnect</button>
+        </div>
       </section>
       <section id="garmin-status-box" class="admin" hidden>
         <h3>Garmin</h3>
@@ -236,6 +242,10 @@
       </div>
       <section id="import-zwift">
         <h3>From your Zwift folder</h3>
+        <p id="import-connect" class="muted small" hidden>
+          Connect your Zwift folder once to see your Zwift workouts here.
+          <button type="button" class="link" id="import-connect-btn">Connect Zwift folder</button>
+        </p>
         <input id="import-search" type="search" placeholder="Search your Zwift workouts">
         <ul id="import-list" class="import-list"></ul>
       </section>
@@ -248,6 +258,7 @@
     </div>
   </dialog>
 
+  <script src="/static/zwift-folder.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

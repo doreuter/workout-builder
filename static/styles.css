@@ -243,6 +243,9 @@ label { display: grid; gap: .3rem; font-size: .9rem; }
 #restore-box[hidden] { display: none; }
 .restore-title { margin-top: .5rem; }
 .danger-zone { margin-top: .9rem; }
+.row-left { display: flex; gap: .5rem; flex-wrap: wrap; }
+#zwift-folder-line code, #export-hint code { font-size: .8rem; }
+.hint a { color: var(--accent); }
 .danger-zone summary { cursor: pointer; color: var(--error); font-size: .9rem; }
 .danger-zone[open] { display: grid; gap: .6rem; }
 .danger-zone p { margin: .5rem 0 0; }
