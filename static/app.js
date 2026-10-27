@@ -861,7 +861,7 @@ function trendChart(spec, trend) {
       + (spec.band && latest[spec.band[0]] ? ` · usual ${latest[spec.band[0]]}–${latest[spec.band[1]]}${spec.unit}` : "")
     : "No data yet"));
 
-  const W = 320, H = 120, padL = 26, padR = 4, padT = 6, padB = 16;
+  const W = 320, H = 138, padL = 30, padR = 4, padT = 8, padB = 26;  // room for 11–12.5px axis labels
   const nums = values.filter((v) => v != null);
   if (spec.band) trend.forEach((p) => { if (p[spec.band[0]]) nums.push(p[spec.band[0]], p[spec.band[1]]); });
   let lo = spec.min ?? Math.min(...nums), hi = spec.max ?? Math.max(...nums);

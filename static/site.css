@@ -29,7 +29,7 @@ img { display: block; }
 .wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
 
 /* header / footer */
-.site-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 18px 0; }
+.site-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-top: 18px; padding-bottom: 18px; }
 .site-head .brand { display: flex; align-items: center; gap: .6rem; text-decoration: none; color: var(--text); font-weight: 500; font-size: 1.25rem; letter-spacing: -.01em; }
 .site-head .brand img { width: 36px; height: 36px; }
 .brand .grind { color: var(--accent); }
@@ -40,7 +40,7 @@ img { display: block; }
 }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .btn:hover { filter: brightness(1.05); }
-.site-foot { border-top: 1px solid var(--border); margin-top: 64px; padding: 28px 0 40px; color: var(--muted); font-size: .85rem; }
+.site-foot { border-top: 1px solid var(--border); margin-top: 64px; padding-top: 28px; padding-bottom: 40px; color: var(--muted); font-size: .85rem; }
 .site-foot nav { display: flex; flex-wrap: wrap; gap: 1.2rem; margin-bottom: .8rem; }
 .site-foot a { color: var(--muted); }
 .site-foot p { margin: .3rem 0; }
@@ -94,6 +94,10 @@ section.block h2 { font-size: 1.7rem; letter-spacing: -.01em; margin: 0 0 1.4rem
 mark.ph { background: var(--placeholder); color: inherit; padding: 0 .2rem; border-radius: 3px; }
 
 @media (max-width: 860px) {
+  .site-foot { font-size: .9rem; }
+  .demo .meta { font-size: .9rem; }
+  .bubble { font-size: 1rem; }
+  .howto .tip, .cta small { font-size: .95rem; }
   .hero { grid-template-columns: 1fr; gap: 32px; padding-top: 24px; }
   .steps, .features, .howto { grid-template-columns: 1fr; }
 }

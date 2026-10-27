@@ -292,7 +292,7 @@ button.danger { background: var(--error); border-color: var(--error); color: #ff
 .r-chart h3 { margin: 0; font-size: .9rem; font-weight: 500; }
 .r-chart .r-latest { font-size: .8rem; color: var(--muted); margin: .1rem 0 .4rem; }
 .r-chart svg { width: 100%; height: auto; display: block; overflow: visible; }
-.r-chart .axis-label { font-size: 9px; fill: var(--muted); }
+.r-chart .axis-label { font-size: 11px; fill: var(--muted); }
 .r-chart .gridline { stroke: var(--grid); stroke-width: 1; }
 .r-chart .band { fill: var(--series); opacity: .12; }
 .r-chart .line { fill: none; stroke: var(--series); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
@@ -346,4 +346,50 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
   .chat { height: 60vh; }
   .hide-sm { display: none; }
   .stats { gap: 1.25rem; }
+}
+
+/* Phones: never wider than the screen (otherwise iOS Safari zooms the whole page out and all text
+   looks tiny), a two-row top bar, larger text, and 16px fields so iOS doesn't zoom in on focus. */
+@media (max-width: 900px) {
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body { font-size: 16px; overflow-x: hidden; }
+  .app, .main { grid-template-columns: minmax(0, 1fr); }
+  .card, .workout, .chat, .readiness { min-width: 0; }
+
+  .topbar { flex-wrap: wrap; row-gap: .6rem; column-gap: .35rem; padding: .6rem 12px; }
+  .topbar .brand { font-size: 1.05rem; }
+  .topbar > button:not(.icon-btn) { font-size: .9rem; padding: .4rem .6rem; }
+  .topbar .spacer { flex: 1 1 0; min-width: 0; }
+  .tabs { order: 10; width: 100%; margin: 0; display: grid; grid-template-columns: 1fr 1fr; background: var(--bg); border-radius: 10px; padding: 3px; }
+  .tab { text-align: center; padding: .5rem; font-size: 1rem; }
+  .tab.active { background: var(--surface-2); }
+
+  .small, .hint, .quota { font-size: .92rem; }
+  .muted.small { font-size: .92rem; }
+  .msg { font-size: 1rem; max-width: 92%; }
+  input, textarea, select { font-size: 16px; }
+  .chat-form textarea { min-height: 3.2rem; }
+  .exports { gap: .6rem; }
+  .exports .btn, .exports button { flex: 1 1 100%; padding: .7rem 1rem; font-size: 1rem; }
+  .stats { gap: 1.5rem; }
+  .stat { font-size: 1.5rem; }
+  .stat-label { font-size: .85rem; }
+  .axis { font-size: .85rem; height: 1.2rem; }
+  .y-labels { font-size: .8rem; }
+  .legend { font-size: .85rem; gap: .9rem; }
+  .steps ol { font-size: 1rem; }
+  .workout-head h2 { font-size: 1.35rem; }
+
+  .r-head { flex-direction: column; align-items: stretch; gap: .75rem; }
+  .r-head h1 { font-size: 1.6rem; }
+  #r-refresh { width: 100%; padding: .65rem 1rem; }
+  .r-chart .axis-label { font-size: 12.5px; }
+  .r-part-head { font-size: 1rem; }
+  .r-part-note { font-size: .9rem; }
+  .r-chart h3 { font-size: 1rem; }
+  .r-chart .r-latest { font-size: .9rem; }
+  .r-acts { font-size: .9rem; }
+  .tooltip { font-size: .9rem; white-space: normal; max-width: 85vw; }
+  dialog { width: calc(100% - 24px); }
+  .settings-form { padding: 1.1rem; }
 }
