@@ -7,6 +7,7 @@ import os
 import re
 import secrets
 import sqlite3
+import tempfile
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -15,9 +16,10 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFi
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import config, db, garmin, llm, readiness, security, zwift
+from . import backup, config, db, garmin, llm, readiness, security, zwift
 from .auth import current_user, hash_password, verify_password
 from .exporters import ExportError, safe_filename, to_fit, to_zwo
 from .importers import MAX_ZWO_BYTES, ImportError_, from_fit, from_zwo
@@ -207,6 +209,45 @@ def create_invite(body: InviteIn, user=Depends(_admin)):
     code = "-".join("".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(2))
     db.create_invite(code, user["id"], (body.note or "").strip() or None)
     return {"code": code}
+
+
+# --- admin: backup and restore ------------------------------------------------------
+
+@app.get("/api/admin/backup")
+def download_backup(user=Depends(_admin)):
+    """A consistent copy of the whole database (accounts, workouts, Garmin data)."""
+    path = backup.snapshot()
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+    return FileResponse(
+        path, media_type="application/vnd.sqlite3", filename=f"vibegrind-backup-{stamp}.sqlite3",
+        background=BackgroundTask(path.unlink, missing_ok=True),
+    )
+
+
+@app.get("/api/admin/restore")
+def restore_status(user=Depends(_admin)):
+    return {"allowed": backup.restore_allowed(), "target_empty": backup.target_is_empty()}
+
+
+@app.post("/api/admin/restore")
+def restore_backup(file: UploadFile, request: Request, user=Depends(_admin)):
+    with tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+        size = 0
+        while chunk := file.file.read(1024 * 1024):
+            size += len(chunk)
+            if size > backup.MAX_BACKUP_BYTES:
+                tmp_path.unlink(missing_ok=True)
+                raise HTTPException(400, "That file is too large to be a VibeGrind backup.")
+            tmp.write(chunk)
+    try:
+        summary = backup.restore(tmp_path)
+    except backup.RestoreError as e:
+        raise HTTPException(400, str(e))
+    finally:
+        tmp_path.unlink(missing_ok=True)
+    request.session.clear()  # account IDs come from the backup now; sign in again
+    return {"ok": True, **summary}
 
 
 # --- workouts ---------------------------------------------------------------
