@@ -263,6 +263,7 @@ label { display: grid; gap: .3rem; font-size: .9rem; }
 .r-status { font-weight: 600; font-size: 1.1rem; display: flex; align-items: center; gap: .45rem; }
 .r-dot { width: .8rem; height: .8rem; border-radius: 50%; display: inline-block; flex: none; }
 .r-note { margin: .25rem 0 0; }
+.r-suggest { justify-self: start; }
 .status-ready { background: var(--good); }
 .status-moderate { background: var(--warning); }
 .status-easy { background: var(--serious); }

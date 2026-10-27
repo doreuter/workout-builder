@@ -236,7 +236,8 @@ function renderMessages(extra = []) {
     const intro = el("div", { class: "msg assistant" });
     intro.textContent = "Describe a cycling workout and I'll build it. You can then ask for changes, like \"make the intervals 30 s longer\".";
     const ex = el("div", { class: "examples" });
-    for (const text of EXAMPLES) {
+    const examples = state.user?.garmin ? ["What should I ride today, given my readiness?", ...EXAMPLES.slice(0, 3)] : EXAMPLES;
+    for (const text of examples) {
       const b = el("button", { type: "button" }, text);
       b.addEventListener("click", () => sendMessage(text));
       ex.append(b);
@@ -575,6 +576,14 @@ function showView(view) {
 }
 
 document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => showView(t.dataset.view)));
+
+const SUGGEST_PROMPT = "Suggest a cycling workout for today that fits my readiness and recent training load.";
+
+$("#r-suggest").addEventListener("click", async () => {
+  showView("workouts");
+  await newWorkout();
+  sendMessage(SUGGEST_PROMPT);
+});
 $("#r-refresh").addEventListener("click", () => loadReadiness(true));
 
 async function loadReadiness(refresh) {

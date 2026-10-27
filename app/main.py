@@ -267,7 +267,8 @@ def chat(workout_id: int, body: ChatIn, user=Depends(current_user)):
     current = json.loads(row["workout_json"]) if row["workout_json"] else None
     history = json.loads(row["messages_json"])
     try:
-        reply, workout, history, usage = llm.chat(user, history, current, body.message)
+        reply, workout, history, usage = llm.chat(user, history, current, body.message,
+                                                  readiness_text=_readiness_for_chat(user))
     except llm.MissingCredentials:
         raise HTTPException(500, "No Anthropic API key is configured on the server. Set ANTHROPIC_API_KEY and restart.")
     except anthropic.AuthenticationError:
@@ -284,6 +285,19 @@ def chat(workout_id: int, body: ChatIn, user=Depends(current_user)):
     view["reply"] = reply
     view["messages_left_today"] = _messages_left(user)
     return view
+
+
+def _readiness_for_chat(user) -> str | None:
+    """The Garmin owner's readiness summary for Claude; None for everyone else."""
+    if not garmin.is_owner(user):
+        return None
+    try:
+        garmin.sync(user)  # only fetches when the last sync is a few hours old
+    except garmin.GarminError:
+        pass  # use what's stored
+    today = date.today()
+    since = (today - timedelta(days=70)).isoformat()
+    return readiness.chat_context(db.garmin_days(user["id"], since), db.garmin_activities(user["id"], since), today)
 
 
 def _today() -> str:

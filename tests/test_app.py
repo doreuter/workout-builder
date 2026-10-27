@@ -606,3 +606,26 @@ def test_garmin_status_explains_why_it_is_off(client, monkeypatch):
     monkeypatch.setenv("ADMIN_EMAILS", "me@example.com")
     me = client.get("/api/me").json()
     assert me["garmin"] is True and me["garmin_status"].startswith("On")
+
+
+def _last_user_turn(client):
+    """Content blocks of the latest user text turn sent to (fake) Claude."""
+    msgs = client.fake.calls[-1]["messages"]
+    return next(m["content"] for m in reversed(msgs) if m["role"] == "user" and m["content"][0]["type"] == "text")
+
+
+def test_chat_gets_readiness_for_the_garmin_owner_only(client, garmin_owner, monkeypatch):
+    monkeypatch.setattr(garmin, "_client", lambda: FakeGarmin(_date.today(), bad_last_night=True))
+    client.get("/api/readiness?refresh=1")
+    wid = client.post("/api/workouts").json()["id"]
+    client.post(f"/api/workouts/{wid}/chat", json={"message": "What should I ride today?"})
+    context = _last_user_turn(client)[0]["text"]
+    assert "Readiness today:" in context and "HRV (" in context and "ratio" in context
+    assert "Activities in the last 7 days:" in context and "virtual_ride, 60 min, load 80" in context
+    assert _last_user_turn(client)[1]["text"] == "What should I ride today?"
+
+    client.post("/api/logout")
+    client.post("/api/register", json={"email": "friend2@example.com", "password": "longenough"})
+    wid = client.post("/api/workouts").json()["id"]
+    client.post(f"/api/workouts/{wid}/chat", json={"message": "What should I ride today?"})
+    assert "Readiness" not in _last_user_turn(client)[0]["text"]

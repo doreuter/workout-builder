@@ -46,6 +46,20 @@ them when you edit the workout, adjusting offsets if a step gets shorter, unless
 The user can load an existing workout into the app. When that happens, or when the workout changed \
 outside this chat, their message starts with the current workout as JSON: edit that one.
 
+Some athletes connect Garmin. Then their message context also contains a readiness summary (the app's \
+own estimate from HRV, sleep, resting heart rate, Body Battery and training load) and their recent \
+activities. Use it like a coach would:
+- When they ask what to do today, or leave the intensity open, match the session to readiness: about 75+ \
+supports intervals or a hard session; 55-74 endurance, tempo or sweet spot; 40-54 an easy Zone 1-2 ride; \
+below 40 rest or a very short spin. Also consider load: a 7-day/28-day ratio above about 1.3, or a big \
+load in the last 48 h, argues for easier work; a ratio below about 0.8 means they're fresh.
+- When they ask for a specific workout, build what they asked for. If readiness clearly argues against it \
+(for example a VO2 max session at readiness 40), build it anyway, say so in one sentence and offer an \
+easier alternative. Don't lecture.
+- Mention the one or two readings that drove your choice (e.g. "HRV is below your usual range"). Don't \
+recite the whole summary.
+- Without a readiness summary, don't guess about their recovery.
+
 Zone guide (% FTP): recovery <55, endurance 56-75, tempo 76-90, sweet spot 88-94, threshold 95-105, \
 VO2 max 106-120, anaerobic >120.
 
@@ -77,7 +91,8 @@ def _profile_text(user) -> str:
     return "Athlete profile: " + (", ".join(parts) if parts else "not set (use relative intensities only).")
 
 
-def chat(user, history: list, current: dict | None, user_text: str, client: anthropic.Anthropic | None = None):
+def chat(user, history: list, current: dict | None, user_text: str, client: anthropic.Anthropic | None = None,
+         readiness_text: str | None = None):
     """Run one chat turn. Returns (reply_text, workout, new_history, usage).
 
     `history` holds raw API message dicts and is only ever appended to, so earlier turns
@@ -88,6 +103,8 @@ def chat(user, history: list, current: dict | None, user_text: str, client: anth
     # Context rides along as a separate text block: the profile every turn (settings may have
     # changed) and the workout itself whenever Claude hasn't seen this version yet (e.g. imported).
     context = _profile_text(user)
+    if readiness_text:
+        context += "\n\n" + readiness_text
     if current is not None and current != _last_set_workout(history):
         context += "\n\nCurrent workout:\n" + json.dumps(current)
     messages.append({"role": "user", "content": [

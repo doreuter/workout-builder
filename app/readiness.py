@@ -146,6 +146,51 @@ def score_day(row, history, loads: dict[str, float]) -> dict:
     }
 
 
+PART_LABELS = {"hrv": "HRV", "sleep": "Sleep", "resting_hr": "Resting HR", "body_battery": "Body Battery", "load": "Training load"}
+
+
+def chat_context(days, activities, today: date) -> str | None:
+    """A compact plain-text summary of readiness and recent training, for Claude's context."""
+    data = build(days, activities, today)
+    t = data["today"]
+    if t is None:
+        return None
+    lines = ["Readiness and training (the app's own estimate from the athlete's Garmin data):"]
+    when = "today" if data["is_today"] else f"{t['day']} (no data for today yet)"
+    lines.append(f"Readiness {when}: {t['score']}/100, {t['verdict']['title']}.")
+    for c in t["components"]:
+        score = "no data" if c["score"] is None else f"{c['score']}/100"
+        lines.append(f"- {PART_LABELS[c['key']]} ({score}): {c['note']}")
+    load = t["load"]
+    ratio = f"{load['ratio']:.2f}" if load["ratio"] is not None else "n/a"
+    lines.append(
+        f"Training load (Garmin load, all sports): 7-day avg {load['acute']:.0f}/day, 28-day avg {load['chronic']:.0f}/day, "
+        f"ratio {ratio}; load in the last 48 h: {load['last_48h']}."
+    )
+    lines.append("Last 7 days (date: readiness, HRV ms, sleep h, load):")
+    for p in data["trend"][-7:]:
+        sleep = f"{p['sleep_hours']:.1f}" if p["sleep_hours"] else "-"
+        lines.append(f"  {p['day']}: {p['readiness'] or '-'}, {p['hrv'] or '-'}, {sleep}, {p['load']}")
+    since = (today - timedelta(days=7)).isoformat()
+    recent = [a for a in activities if a["day"] >= since]
+    if recent:
+        lines.append("Activities in the last 7 days:")
+        for a in recent:
+            parts = [a["day"], a["type_key"] or "activity"]
+            if a["duration_s"]:
+                parts.append(f"{round(a['duration_s'] / 60)} min")
+            if a["training_load"] is not None:
+                parts.append(f"load {round(a['training_load'])}")
+            if a["tss"]:
+                parts.append(f"TSS {round(a['tss'])}")
+            if a["te_label"]:
+                parts.append(a["te_label"].lower().replace("_", " "))
+            lines.append("  " + ", ".join(parts))
+    else:
+        lines.append("No activities in the last 7 days.")
+    return "\n".join(lines)
+
+
 def build(days, activities, today: date) -> dict:
     """Everything the dashboard needs: today's readiness plus 30 days of trends."""
     rows = list(days)
