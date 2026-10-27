@@ -9,21 +9,25 @@ Keep the answers honest: Garmin's terms make the developer responsible for every
 
 ## Before you submit
 
-1. **Decide the legal entity.** Garmin wants "the organization that owns, operates, or distributes the
-   application". Options in Germany:
-   - **Sole proprietor (Einzelunternehmen):** register a Gewerbe with your town (usually quick and cheap;
-     small-business VAT rules (Kleinunternehmer) may apply). The company name can be "[Your name], VibeGrind".
-   - **UG (haftungsbeschränkt) / GmbH:** limits personal liability, more paperwork and cost. Worth it once
-     there's real revenue or many users' health data.
-   Ask a tax advisor (Steuerberater) which fits; this isn't tax or legal advice.
+1. **The legal entity: a Swiss sole proprietorship (Einzelunternehmen) "Dominik Reuter – VibeGrind".**
+   - In Switzerland a sole proprietorship exists as soon as you run the business; the business name must
+     contain your surname, which "Dominik Reuter – VibeGrind" does.
+   - Entry in the commercial register (Handelsregister) is only required from CHF 100,000 annual revenue;
+     a voluntary entry gives you a UID number (CHE-…) that looks good on the application and the imprint.
+   - Being self-employed also has social-insurance (AHV, with the SVA Schwyz) and tax consequences once you
+     earn money. A Treuhänder can tell you what applies; this isn't tax or legal advice.
 2. **Domain and email.** Register `vibegrind.app` (or similar) and a matching address like
    `hello@vibegrind.app`. A custom domain looks far more credible to Garmin than `….onrender.com`.
-   The landing page already uses `hello@vibegrind.app`; change it if you pick another address.
+   `vibegrind.app` looked unregistered on 2026-10-27 (`vibegrind.com` is taken by someone else).
+   The landing page and legal pages already use `hello@vibegrind.app`; change it if you pick another address.
 3. **Fill the placeholders** on `/privacy`, `/terms` and `/imprint` (they're highlighted in yellow), then
    remove the "Draft" notes. Have a lawyer look at the privacy policy: it covers health data (Art. 9 GDPR).
-4. **Server region.** The Render service runs in the US (Oregon) by default. For EU health data,
+4. **Server region.** The Render service runs in the US (Oregon) by default. For Swiss and EU health data,
    moving to Render's **Frankfurt** region is the stronger story (it means creating a new service there).
    Update section 4 of the privacy policy either way.
+4b. **EU representative.** A Swiss business that offers its service to people in the EU and processes their
+   health data generally needs an EU representative (Art. 27 GDPR). Specialized providers do this for a yearly
+   fee. Alternatively, keep the beta to users in Switzerland until it's sorted. Ask your lawyer.
 5. **Make the promises true before onboarding other users** (the current app only connects your own key):
    - Explicit consent screen when someone connects Garmin (health data).
    - "Disconnect Garmin and delete my Garmin data" button.
@@ -36,19 +40,19 @@ Keep the answers honest: Garmin's terms make the developer responsible for every
 
 ## Form answers
 
-**Company Name:** `[entity name, e.g. "Dominik Reuter – VibeGrind" or "VibeGrind UG (haftungsbeschränkt)"]`
+**Company Name:** Dominik Reuter – VibeGrind
 
-**Company Website URL:** `https://[vibegrind.app]`
+**Company Website URL:** https://vibegrind.app
 
-**Company Privacy Policy URL:** `https://[vibegrind.app]/privacy`
+**Company Privacy Policy URL:** https://vibegrind.app/privacy
 
-**Contact Name:** `[your full name]`
+**Contact Name:** Dominik Reuter
 
 **Job Title:** Founder
 
-**Email address:** `[hello@vibegrind.app or your business email]`
+**Email address:** hello@vibegrind.app
 
-**Address / City / Country / Postal Code:** `[business address]`, Germany
+**Address:** Zaystrasse 21 · **City:** Goldau · **Country:** Switzerland · **Postal Code:** 6410
 
 **What is your company's primary business service?** Coaching & Training Programs
 
@@ -81,7 +85,7 @@ Keep the answers honest: Garmin's terms make the developer responsible for every
 **Describe the business model for the products or services using this API access.**
 
 > VibeGrind is in a free, invite-only beta. After the beta we plan a paid subscription for individual
-> athletes (around `[€5–8]` per month), with a limited free tier. There is no advertising, and we don't
+> athletes (around `[CHF 5–8]` per month), with a limited free tier. There is no advertising, and we don't
 > sell or share users' data; Garmin data is used only to provide the service to the user it belongs to.
 
 **Please identify any third-party services, including analytics, machine learning or AI platforms, that will process, analyze or store Garmin device-sourced data.**

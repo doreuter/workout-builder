@@ -14,63 +14,65 @@
   </header>
 
   <main class="wrap legal">
-    <p class="draft-note"><strong>Draft.</strong> Highlighted parts are placeholders. This text has not been reviewed by a lawyer.</p>
+    <p class="draft-note"><strong>Draft.</strong> Highlighted parts still need to be filled in or checked. This text has not been reviewed by a lawyer.</p>
     <h1>Privacy policy</h1>
     <p class="updated">Last updated: <mark class="ph">[date of publication]</mark></p>
 
-    <p>This policy explains what personal data VibeGrind (“we”, “the service”) processes when you use the website and app at <mark class="ph">[website address]</mark>, why, and what rights you have. VibeGrind turns plain-language descriptions into structured cycling workouts and, if you connect Garmin, estimates your daily readiness to train.</p>
+    <p>This policy explains what personal data VibeGrind processes when you use the website and app at https://vibegrind.app, why, and what rights you have. VibeGrind turns plain-language descriptions into structured cycling workouts and, if you connect Garmin, estimates your daily readiness to train.</p>
+    <p>VibeGrind is operated from Switzerland, so the Swiss Federal Act on Data Protection (FADP) applies. Where we process data of people in the European Union or the European Economic Area, the EU General Data Protection Regulation (GDPR) applies as well.</p>
 
     <h2>1. Who is responsible</h2>
-    <p>The controller under the EU General Data Protection Regulation (GDPR) is:</p>
-    <p><mark class="ph">[Full name or company name]</mark><br>
-      <mark class="ph">[Street and number]</mark><br>
-      <mark class="ph">[Postal code and city]</mark>, Germany<br>
-      Email: <mark class="ph">[contact email]</mark></p>
-    <p>We are not required to appoint a data protection officer. For any privacy question, write to the email address above.</p>
+    <p>Dominik Reuter – VibeGrind<br>
+      Zaystrasse 21<br>
+      6410 Goldau<br>
+      Switzerland<br>
+      Email: <mark class="ph">hello@vibegrind.app</mark></p>
+    <p>For any privacy question, write to the email address above.</p>
+    <p><strong>EU representative (Art. 27 GDPR):</strong> <mark class="ph">[name and address of an EU representative, if required; see the note in docs/garmin-application.md]</mark></p>
 
     <h2>2. What we process, and why</h2>
     <table>
-      <thead><tr><th>Data</th><th>Purpose</th><th>Legal basis</th></tr></thead>
+      <thead><tr><th>Data</th><th>Purpose</th><th>Legal basis (GDPR, for EU/EEA users)</th></tr></thead>
       <tbody>
         <tr>
           <td><strong>Account data:</strong> email address, a securely hashed password, the invite code you used</td>
           <td>Creating and securing your account</td>
-          <td>Art. 6(1)(b) GDPR (contract)</td>
+          <td>Art. 6(1)(b) (contract)</td>
         </tr>
         <tr>
           <td><strong>Training settings:</strong> FTP, maximum heart rate</td>
           <td>Showing watts and tailoring workouts</td>
-          <td>Art. 6(1)(b) GDPR</td>
+          <td>Art. 6(1)(b)</td>
         </tr>
         <tr>
           <td><strong>Workouts and chat messages</strong> you write, and the workouts created from them; workout files you upload</td>
           <td>Building, editing, storing and exporting your workouts</td>
-          <td>Art. 6(1)(b) GDPR</td>
+          <td>Art. 6(1)(b)</td>
         </tr>
         <tr>
           <td><strong>Garmin data</strong>, only if you connect Garmin: overnight heart-rate variability (HRV), resting heart rate, sleep duration, stages and score, Body Battery, stress, and activity summaries (type, date, duration, power, heart rate, training load, training effect)</td>
           <td>Your readiness dashboard and workout suggestions that fit your readiness</td>
-          <td>Your explicit consent, Art. 9(2)(a) and Art. 6(1)(a) GDPR</td>
+          <td>Your explicit consent, Art. 9(2)(a) and Art. 6(1)(a)</td>
         </tr>
         <tr>
           <td><strong>Usage counters:</strong> number of chat messages per day and the AI cost estimate</td>
           <td>Fair-use limits and keeping costs under control</td>
-          <td>Art. 6(1)(f) GDPR (legitimate interest in running the service sustainably)</td>
+          <td>Art. 6(1)(f) (legitimate interest in running the service sustainably)</td>
         </tr>
         <tr>
           <td><strong>Technical data:</strong> IP address, time and type of request, browser information in server logs</td>
           <td>Operating the service securely, limiting sign-in attempts, fixing errors</td>
-          <td>Art. 6(1)(f) GDPR (legitimate interest in security)</td>
+          <td>Art. 6(1)(f) (legitimate interest in security)</td>
         </tr>
       </tbody>
     </table>
-    <p>Data about your heart rate, HRV, sleep and similar measurements can be <strong>health data</strong> under Art. 9 GDPR. We only process it with your explicit consent, given when you connect Garmin. You can withdraw that consent at any time (see section 7); this doesn't affect processing that happened before.</p>
-    <p>We don't use your data for advertising, we don't sell it, and we don't build profiles beyond what you see in the app. The readiness score and workout suggestions are automated, but they have no legal or similarly significant effect on you (Art. 22 GDPR); they're training suggestions you're free to ignore.</p>
+    <p>Data about your heart rate, HRV, sleep and similar measurements is <strong>health data</strong>, which the FADP treats as sensitive personal data and the GDPR as a special category (Art. 9 GDPR). We only process it with your explicit consent, given when you connect Garmin. You can withdraw that consent at any time (see section 7); this doesn't affect processing that happened before.</p>
+    <p>We don't use your data for advertising, we don't sell it, and we don't build profiles beyond what you see in the app. The readiness score and workout suggestions are produced automatically, but they're training suggestions you're free to ignore: they don't lead to any decision that has legal consequences for you or affects you significantly.</p>
 
     <h2>3. AI processing</h2>
-    <p>When you send a chat message, the message, the current workout, your training settings and, if you've connected Garmin, a short summary of your readiness and recent activities are sent to Anthropic's Claude API to create or change the workout. Anthropic processes this data on our behalf as a processor. Under Anthropic's commercial terms, data sent through its API isn't used to train its models. Please don't put information in the chat that isn't needed for your training.</p>
+    <p>When you send a chat message, the message, the current workout, your training settings and, if you've connected Garmin, a short summary of your readiness and recent activities are sent to Anthropic's Claude API to create or change the workout. Anthropic processes this data on our behalf. Under Anthropic's commercial terms, data sent through its API isn't used to train its models. Please don't put information in the chat that isn't needed for your training.</p>
 
-    <h2>4. Service providers</h2>
+    <h2>4. Service providers and transfers abroad</h2>
     <p>We use these providers, each bound by a data processing agreement where they act on our behalf:</p>
     <table>
       <thead><tr><th>Provider</th><th>What for</th><th>Location</th></tr></thead>
@@ -80,7 +82,7 @@
         <tr><td>Garmin Ltd. and subsidiaries</td><td>Source of your Garmin data, when you connect it. Garmin processes your data under its own privacy policy.</td><td>Per Garmin's privacy policy</td></tr>
       </tbody>
     </table>
-    <p>Where data is transferred to the USA, the transfer relies on the EU-U.S. Data Privacy Framework where the provider is certified, and otherwise on the EU Standard Contractual Clauses (Art. 46(2)(c) GDPR). <mark class="ph">[Check each provider's current certification status before publishing.]</mark></p>
+    <p>Transfers to the USA rely on the Swiss-U.S. and EU-U.S. Data Privacy Frameworks where the provider is certified, and otherwise on standard contractual clauses recognized by the Swiss Federal Data Protection and Information Commissioner and the European Commission. <mark class="ph">[Check each provider's current certification status before publishing.]</mark></p>
 
     <h2>5. How long we keep data</h2>
     <ul>
@@ -91,11 +93,11 @@
     </ul>
 
     <h2>6. Cookies</h2>
-    <p>We use one cookie: a session cookie that keeps you signed in. It's strictly necessary for the service, so it doesn't need consent (§ 25(2) TDDDG). We don't use analytics, tracking or advertising cookies.</p>
+    <p>We use one cookie: a session cookie that keeps you signed in. It's needed for the service to work. We don't use analytics, tracking or advertising cookies.</p>
 
     <h2>7. Your rights</h2>
-    <p>You have the right to access your data (Art. 15 GDPR), to have it corrected (Art. 16), deleted (Art. 17) or restricted (Art. 18), to receive it in a portable format (Art. 20), and to object to processing based on legitimate interests (Art. 21). You can withdraw your consent to Garmin data processing at any time, by disconnecting Garmin or by emailing us. To exercise any of these rights, write to <mark class="ph">[contact email]</mark>.</p>
-    <p>You also have the right to complain to a data protection supervisory authority, for example the one responsible for us: <mark class="ph">[supervisory authority of your federal state, e.g. Bayerisches Landesamt für Datenschutzaufsicht]</mark>.</p>
+    <p>You can ask us for information about the data we hold about you, and to have it corrected, deleted or handed over in a common electronic format. You can object to processing and withdraw your consent to Garmin data processing at any time, by disconnecting Garmin or by emailing us. Under the GDPR, EU/EEA users also have the right to restrict processing (Art. 18). To exercise any of these rights, write to <mark class="ph">hello@vibegrind.app</mark>.</p>
+    <p>You can also complain to a data protection authority: in Switzerland the Federal Data Protection and Information Commissioner (FDPIC, <a href="https://www.edoeb.admin.ch">www.edoeb.admin.ch</a>); in the EU/EEA the authority in your country of residence.</p>
 
     <h2>8. Security</h2>
     <p>Connections are encrypted (HTTPS), passwords are stored only as salted scrypt hashes, sign-in attempts are rate-limited, and access to the service is invite-only during the beta.</p>
