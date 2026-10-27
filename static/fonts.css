@@ -1,0 +1,15 @@
+/* Self-hosted so visitors' browsers never contact Google. Both fonts: SIL Open Font License (see fonts/OFL-*.txt). */
+@font-face {
+  font-family: "Sora";
+  src: url("/static/fonts/sora.woff2") format("woff2");
+  font-weight: 400 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/static/fonts/jetbrains-mono.woff2") format("woff2");
+  font-weight: 400 500;
+  font-style: normal;
+  font-display: swap;
+}
