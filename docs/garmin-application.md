@@ -22,12 +22,11 @@ Keep the answers honest: Garmin's terms make the developer responsible for every
    The landing page and legal pages already use `hello@vibegrind.app`; change it if you pick another address.
 3. **Fill the placeholders** on `/privacy`, `/terms` and `/imprint` (they're highlighted in yellow), then
    remove the "Draft" notes. Have a lawyer look at the privacy policy: it covers health data (Art. 9 GDPR).
-4. **Server region.** The Render service runs in the US (Oregon) by default. For Swiss and EU health data,
-   moving to Render's **Frankfurt** region is the stronger story (it means creating a new service there).
-   Update section 4 of the privacy policy either way.
-4b. **EU representative.** A Swiss business that offers its service to people in the EU and processes their
-   health data generally needs an EU representative (Art. 27 GDPR). Specialized providers do this for a yearly
-   fee. Alternatively, keep the beta to users in Switzerland until it's sorted. Ask your lawyer.
+4. **Server region: done.** `render.yaml` now creates the service in Render's **Frankfurt** region (EU).
+   The privacy policy says so.
+4b. **EU representative: Dominik Reuter, Kobenbachweg 5, 88090 Immenstaad, Germany** (in the privacy policy).
+   Ask your lawyer to confirm this works: naming yourself as your own EU representative is unusual, and if
+   you live in Germany, the business may count as established in Germany rather than in Switzerland.
 5. **Make the promises true before onboarding other users** (the current app only connects your own key):
    - Explicit consent screen when someone connects Garmin (health data).
    - "Disconnect Garmin and delete my Garmin data" button.
@@ -91,7 +90,7 @@ Keep the answers honest: Garmin's terms make the developer responsible for every
 **Please identify any third-party services, including analytics, machine learning or AI platforms, that will process, analyze or store Garmin device-sourced data.**
 
 > - **Render (Render Services, Inc.):** application hosting and database; stores the Garmin data we
->   receive. Region: `[US (Oregon) / EU (Frankfurt)]`.
+>   receive. Region: Frankfurt, Germany (EU).
 > - **Anthropic (Claude API):** generates and adjusts workouts. When a user chats, we send a short
 >   derived summary: today's readiness estimate and its components (HRV vs. baseline, resting heart
 >   rate, sleep, Body Battery), the last 7 days of these values and of training load, and recent

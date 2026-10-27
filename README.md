@@ -34,7 +34,7 @@ Tests: `.venv/bin/pytest`
 
 ## Hosting on Render
 
-`render.yaml` describes the service: a Python web service on the Starter plan with a 1 GB disk at `/var/data` for the database.
+`render.yaml` describes the service: a Python web service named `vibegrind` in Render's Frankfurt (EU) region, on the Starter plan with a 1 GB disk at `/var/data` for the database.
 
 1. Push this folder to a **private** GitHub repository. `.env` and `data/` are git-ignored, so your key and database stay local.
 2. In Render: **New → Blueprint**, pick the repository. When asked, fill in `ANTHROPIC_API_KEY` (create a new key just for this) and `ADMIN_EMAILS` (your email).

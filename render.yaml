@@ -3,7 +3,8 @@
 # variables marked `sync: false` when Render asks for them.
 services:
   - type: web
-    name: workout-builder
+    name: vibegrind
+    region: frankfurt        # EU hosting for users' health data; a region can't be changed later
     runtime: python
     plan: starter            # a paid plan is needed for the persistent disk below
     buildCommand: pip install -r requirements.txt
