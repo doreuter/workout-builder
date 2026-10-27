@@ -36,7 +36,7 @@ def safe_filename(name: str, ext: str) -> str:
 def to_zwo(workout: dict, threshold_pace_s_per_km: int | None = None) -> bytes:
     pace = threshold_pace_s_per_km or DEFAULT_THRESHOLD_PACE
     root = ET.Element("workout_file")
-    ET.SubElement(root, "author").text = "Workout Builder"
+    ET.SubElement(root, "author").text = "VibeGrind"
     ET.SubElement(root, "name").text = workout["name"]
     ET.SubElement(root, "description").text = workout.get("description", "")
     ET.SubElement(root, "sportType").text = "bike" if workout["sport"] == "cycling" else "run"

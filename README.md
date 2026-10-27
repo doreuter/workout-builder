@@ -1,4 +1,4 @@
-# Workout Builder
+# VibeGrind
 
 Describe a cycling workout in plain language. Claude turns it into a structured workout, the app draws it as a chart, and you send it to Zwift or download it for Zwift (`.zwo`) or Garmin (`.fit`).
 

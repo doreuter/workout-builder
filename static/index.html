@@ -3,14 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Workout Builder</title>
+  <title>VibeGrind</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
   <!-- Sign in / register -->
   <section id="auth" class="auth" hidden>
     <form id="auth-form" class="card auth-card">
-      <h1>Workout Builder</h1>
+      <a class="brand auth-logo" href="/"><img src="/static/brand/logo.svg" alt="" width="40" height="40"><span>Vibe<span class="grind">Grind</span></span></a>
       <p class="muted">Describe a ride in plain words. Get a chart and files for Zwift and Garmin.</p>
       <label>Email <input name="email" type="email" autocomplete="email" required></label>
       <label>Password <input name="password" type="password" autocomplete="current-password" minlength="8" required></label>
@@ -21,6 +22,9 @@
         <span id="auth-switch-text">No account yet?</span>
         <button type="button" class="link" id="auth-switch">Create one</button>
       </p>
+      <p class="muted small auth-legal">
+        By creating an account you accept the <a href="/terms">terms of use</a>. See our <a href="/privacy">privacy policy</a> · <a href="/imprint">imprint</a>.
+      </p>
     </form>
   </section>
 
@@ -28,7 +32,7 @@
   <div id="app" class="app" hidden>
     <header class="topbar">
       <button class="icon-btn" id="menu-btn" aria-label="Show workouts">☰</button>
-      <strong class="brand">Workout Builder</strong>
+      <a class="brand" href="/"><img src="/static/brand/logo.svg" alt="" width="26" height="26"><span>Vibe<span class="grind">Grind</span></span></a>
       <nav class="tabs" id="tabs" hidden>
         <button class="tab active" data-view="workouts">Workouts</button>
         <button class="tab" data-view="readiness">Readiness</button>

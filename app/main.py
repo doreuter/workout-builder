@@ -39,7 +39,7 @@ def _session_secret() -> str:
 
 
 db.init_db()
-app = FastAPI(title="Workout Builder")
+app = FastAPI(title="VibeGrind")
 app.add_middleware(
     SessionMiddleware,
     secret_key=_session_secret(),
@@ -53,6 +53,11 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
 @app.get("/")
+def landing():
+    return FileResponse(STATIC / "landing.html")
+
+
+@app.get("/app")
 def index():
     return FileResponse(STATIC / "index.html")
 
@@ -416,3 +421,16 @@ def import_file(file: UploadFile, user=Depends(current_user)):
         raise HTTPException(400, str(e))
     workout_id = db.create_workout(user["id"], workout)
     return _workout_view(user, _get_row(user, workout_id))
+
+
+# --- public pages ----------------------------------------------------------------
+# Defined last: "/{page}" would otherwise shadow routes declared after it.
+
+PUBLIC_PAGES = {"privacy": "privacy.html", "terms": "terms.html", "imprint": "imprint.html"}
+
+
+@app.get("/{page}")
+def public_page(page: str):
+    if page not in PUBLIC_PAGES:
+        raise HTTPException(404, "Not found")
+    return FileResponse(STATIC / PUBLIC_PAGES[page])

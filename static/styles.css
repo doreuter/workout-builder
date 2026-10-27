@@ -120,7 +120,11 @@ label { display: grid; gap: .3rem; font-size: .9rem; }
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
-.brand { color: var(--accent); }
+.brand { display: flex; align-items: center; gap: .45rem; color: var(--text); font-weight: 800; text-decoration: none; white-space: nowrap; }
+.brand .grind { color: var(--accent); }
+.auth-logo { font-size: 1.6rem; letter-spacing: -.01em; }
+.auth-legal { border-top: 1px solid var(--border); padding-top: .8rem; }
+.auth-legal a { color: var(--accent); }
 .spacer { flex: 1; }
 #menu-btn { display: none; }
 .sidebar {

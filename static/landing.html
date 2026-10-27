@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VibeGrind: describe the vibe, ride the grind</title>
+  <meta name="description" content="VibeGrind turns plain-language ideas into structured cycling workouts, checks how ready you are from your Garmin data, and gets the session onto Zwift or your Garmin.">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/site.css">
+</head>
+<body>
+  <header class="wrap site-head">
+    <a class="brand" href="/"><img src="/static/brand/logo.svg" alt=""><span>Vibe<span class="grind">Grind</span></span></a>
+    <a class="btn" href="/app" id="head-cta">Sign in</a>
+  </header>
+
+  <main class="wrap">
+    <section class="hero">
+      <div>
+        <span class="badge">Private beta · invite only</span>
+        <h1>Describe the vibe.<br><em>Ride the grind.</em></h1>
+        <p class="lead">VibeGrind turns a sentence like “4×8 min at threshold, about an hour” into a structured cycling workout, checks how ready you are from your Garmin data, and gets the session onto Zwift or your Garmin.</p>
+        <div class="cta">
+          <a class="btn primary" href="/app">Sign in</a>
+          <a class="btn" href="mailto:hello@vibegrind.app?subject=VibeGrind%20invite">Request an invite</a>
+          <small>Free during the beta. You'll need an invite code to create an account.</small>
+        </div>
+      </div>
+
+      <div class="demo" aria-label="Example of a VibeGrind chat and the workout it creates">
+        <div class="bubble me">What should I ride today?</div>
+        <div class="bubble coach">Your HRV is in your usual range and you slept 8 h, but your load has ramped up this week, so: sweet spot, 3 × 8 min at 90 %, 56 min total.</div>
+        <svg viewBox="0 0 400 120" role="img" aria-label="Workout profile: warm-up, three 8-minute sweet spot efforts with easy recoveries, cool-down">
+          <line x1="0" x2="400" y1="30" y2="30" stroke="currentColor" stroke-opacity=".15" stroke-dasharray="4 4"/>
+          <polygon points="0,120 0,80 70,58 70,120" fill="#3b82f6"/>
+          <rect x="72" y="42" width="56" height="78" rx="3" fill="#22a35a"/>
+          <rect x="130" y="76" width="28" height="44" rx="3" fill="#9aa3ad"/>
+          <rect x="160" y="42" width="56" height="78" rx="3" fill="#22a35a"/>
+          <rect x="218" y="76" width="28" height="44" rx="3" fill="#9aa3ad"/>
+          <rect x="248" y="42" width="56" height="78" rx="3" fill="#22a35a"/>
+          <polygon points="306,120 306,64 400,90 400,120" fill="#9aa3ad"/>
+        </svg>
+        <div class="meta">
+          <span><b>0:56:00</b>Duration</span>
+          <span><b>54</b>TSS</span>
+          <span><b>.zwo · .fit</b>Export</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <h2>How it works</h2>
+      <div class="steps">
+        <article class="card">
+          <span class="step-n">1</span>
+          <h3>Describe it</h3>
+          <p>Type the session the way you'd tell a friend: “VO2 max, 5×4 min, warm up well.” Change it the same way: “make the recoveries shorter.”</p>
+        </article>
+        <article class="card">
+          <span class="step-n">2</span>
+          <h3>See it</h3>
+          <p>VibeGrind draws the workout by training zone, with duration, intensity factor and TSS, and shows watts from your FTP.</p>
+        </article>
+        <article class="card">
+          <span class="step-n">3</span>
+          <h3>Ride it</h3>
+          <p>Download it for Zwift (<code>.zwo</code>) or your Garmin (<code>.fit</code>), or import workouts you already have and edit them.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="block">
+      <h2>Built around how ready you are</h2>
+      <div class="features">
+        <article class="card">
+          <h3>Readiness, explained</h3>
+          <p>Connect Garmin to see a daily readiness estimate from your overnight HRV, sleep, resting heart rate, Body Battery and training load, with the reason behind every number.</p>
+        </article>
+        <article class="card">
+          <h3>Suggestions that fit the day</h3>
+          <p>Ask “what should I ride today?” and get a session that matches your readiness and recent load: intervals when you're fresh, easy spinning when you're not.</p>
+        </article>
+        <article class="card">
+          <h3>Works with your tools</h3>
+          <p>Zwift and Garmin workout files today. Sending workouts straight to Garmin devices is planned.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="privacy-band">
+        <div>
+          <h2>Your data, your call</h2>
+          <p>Health data is personal. VibeGrind only reads your Garmin data after you connect your account and agree, and only to show your readiness and tailor your workouts.</p>
+        </div>
+        <ul>
+          <li>No ads, and we never sell your data.</li>
+          <li>Garmin data is used only for your own dashboard and suggestions.</li>
+          <li>You can disconnect Garmin and have your data deleted at any time.</li>
+          <li>Readiness is an estimate for training, not medical advice.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer class="wrap site-foot">
+    <nav>
+      <a href="/privacy">Privacy policy</a>
+      <a href="/terms">Terms of use</a>
+      <a href="/imprint">Imprint</a>
+      <a href="mailto:hello@vibegrind.app">hello@vibegrind.app</a>
+    </nav>
+    <p>Garmin and Garmin Connect are trademarks of Garmin Ltd. or its subsidiaries. Zwift is a trademark of Zwift, Inc. VibeGrind is an independent service and is not affiliated with or endorsed by Garmin or Zwift.</p>
+    <p>© 2026 VibeGrind</p>
+  </footer>
+  <script src="/static/landing.js"></script>
+</body>
+</html>

@@ -14,7 +14,8 @@ from pathlib import Path
 from . import config
 
 ZWIFT_ROOT = Path.home() / "Documents" / "Zwift" / "Workouts"
-OUR_AUTHOR = b"<author>Workout Builder</author>"
+# Files we wrote; "Workout Builder" was the app's name before VibeGrind.
+OUR_AUTHORS = (b"<author>VibeGrind</author>", b"<author>Workout Builder</author>")
 
 
 class ZwiftFolderError(RuntimeError):
@@ -92,7 +93,7 @@ def save(data: bytes, filename: str) -> Path:
     stem, ext = os.path.splitext(filename)
     target = folder / filename
     n = 1
-    while target.exists() and OUR_AUTHOR not in target.read_bytes()[:500]:
+    while target.exists() and not any(a in target.read_bytes()[:500] for a in OUR_AUTHORS):
         target = folder / f"{stem}_{n}{ext}"
         n += 1
     target.write_bytes(data)

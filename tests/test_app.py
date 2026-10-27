@@ -585,8 +585,26 @@ def test_garmin_only_for_owner_and_errors_are_shown(client, garmin_owner, monkey
     assert client.get("/api/readiness").status_code == 404
 
 
+def test_public_pages_and_app_route(client):
+    assert "Describe the vibe" in client.get("/").text
+    assert 'id="auth-form"' in client.get("/app").text
+    for page in ("privacy", "terms", "imprint"):
+        r = client.get(f"/{page}")
+        assert r.status_code == 200 and "<h1>" in r.text
+    assert client.get("/nope").status_code == 404
+    assert client.get("/healthz").json() == {"ok": True}  # not shadowed by "/{page}"
+
+
+def test_send_to_zwift_still_recognizes_files_from_before_the_rename(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("ZWIFT_WORKOUTS_DIR", str(tmp_path))
+    (tmp_path / "4x8_Threshold.zwo").write_text("<workout_file><author>Workout Builder</author></workout_file>")
+    from app import zwift
+    assert zwift.save(b"<workout_file><author>VibeGrind</author></workout_file>", "4x8_Threshold.zwo").name == "4x8_Threshold.zwo"
+
+
 def test_page_and_static_files_are_revalidated(client):
     assert client.get("/").headers["cache-control"] == "no-cache"
+    assert client.get("/app").headers["cache-control"] == "no-cache"
     r = client.get("/static/app.js")
     assert r.headers["cache-control"] == "no-cache" and r.headers.get("etag")
     assert client.get("/healthz").headers.get("cache-control") != "no-cache"
