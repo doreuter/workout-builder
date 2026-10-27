@@ -32,6 +32,30 @@ Tests: `.venv/bin/pytest`
 | `SESSION_SECRET` | Signs login cookies; set it when hosted |
 | `ZWIFT_WORKOUTS_DIR` | Zwift folder to use if auto-detection doesn't find it (local mode) |
 
+## Accounts, data and backups
+
+- **Download my data / Delete my account:** in Settings, for every user. Deleting needs the password and
+  removes the account with its workouts, chats, usage counters and Garmin data.
+- **Retention:** usage counters older than 13 months and spent or expired password-reset links are deleted
+  automatically (on start and every 15 minutes on hosted servers).
+- **Password reset by email:** "Forgot password?" on the sign-in page appears once email is configured.
+  Links are single-use and expire after one hour; only a hash of the token is stored.
+- **Encrypted off-site backups:** once a day the database is snapshotted, gzip-compressed and encrypted
+  (Fernet) *on the server*, then uploaded to S3-compatible storage; backups older than `BACKUP_KEEP_DAYS`
+  are deleted. Admins see the status under Settings → Backup. To get one back:
+  `.venv/bin/python scripts/fetch_backup.py latest`, then upload the file under Settings → Restore on a fresh
+  server (with `ALLOW_RESTORE=1`).
+
+| Variable | Purpose |
+|---|---|
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` | Any SMTP provider; port 587 = STARTTLS, 465 = TLS |
+| `MAIL_FROM` | e.g. `VibeGrind <hello@vibegrind.app>`; must be an address the provider lets you send from |
+| `BACKUP_S3_ENDPOINT`, `BACKUP_S3_BUCKET` | S3-compatible storage, e.g. Cloudflare R2 with EU jurisdiction |
+| `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY`, `BACKUP_S3_REGION` | Credentials (region defaults to `auto`) |
+| `BACKUP_ENCRYPTION_KEY` | Create with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. **Keep a copy somewhere safe: without it the backups can't be read** |
+| `BACKUP_KEEP_DAYS` | Default 14 |
+| `MAINTENANCE` | Background jobs; on by default when `APP_MODE=hosted` |
+
 ## Hosting on Render
 
 `render.yaml` describes the service: a Python web service named `vibegrind` in Render's Frankfurt (EU) region, on the Starter plan with a 1 GB disk at `/var/data` for the database.

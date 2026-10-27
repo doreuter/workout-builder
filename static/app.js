@@ -110,10 +110,61 @@ function el(tag, attrs = {}, text) {
 
 // --- auth ------------------------------------------------------------------------
 
-function showAuth() {
+function showAuth(panel = "login") {
   $("#app").hidden = true;
   $("#auth").hidden = false;
+  $("#auth-form").hidden = panel !== "login";
+  $("#forgot-form").hidden = panel !== "forgot";
+  $("#reset-form").hidden = panel !== "reset";
 }
+
+function showMsg(node, text, kind) {
+  node.textContent = text;
+  node.className = `small ${kind}`;
+  node.hidden = false;
+}
+
+// --- password reset ---------------------------------------------------------------------
+
+$("#forgot-link").addEventListener("click", () => {
+  $("#forgot-msg").hidden = true;
+  $("#forgot-form").email.value = $("#auth-form").email.value;
+  showAuth("forgot");
+});
+document.querySelectorAll("[data-back]").forEach((b) => b.addEventListener("click", () => {
+  history.replaceState(null, "", location.pathname);
+  showAuth("login");
+}));
+
+$("#forgot-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = e.target.querySelector("button[type=submit]");
+  btn.disabled = true;
+  try {
+    const r = await api("/api/password-reset/request", { method: "POST", body: { email: e.target.email.value } });
+    showMsg($("#forgot-msg"), r.message, "success");
+  } catch (err) {
+    showMsg($("#forgot-msg"), err.message, "error");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$("#reset-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  if (f.password.value !== f.repeat.value) return showMsg($("#reset-msg"), "The passwords don't match.", "error");
+  const token = new URLSearchParams(location.hash.slice(1)).get("reset");
+  try {
+    await api("/api/password-reset/confirm", { method: "POST", body: { token, password: f.password.value } });
+    f.reset();
+    history.replaceState(null, "", location.pathname);  // the link only works once anyway
+    showMsg($("#reset-msg"), "Password saved. You can sign in now.", "success");
+    setTimeout(() => showAuth("login"), 1800);
+  } catch (err) {
+    showMsg($("#reset-msg"), err.message, "error");
+  }
+});
 
 function setAuthMode(registering) {
   state.registering = registering;
@@ -830,6 +881,13 @@ $("#settings-btn").addEventListener("click", () => {
   if (state.user.is_admin) {
     loadInvites();
     api("/api/admin/restore").then((r) => { $("#restore-box").hidden = !r.allowed; }).catch(() => {});
+    api("/api/admin/offsite").then((o) => {
+      $("#offsite-status").textContent = !o.configured
+        ? "Automatic off-site backups: not set up."
+        : o.last_error ? `Automatic off-site backups: last attempt failed (${o.last_error}).`
+        : o.last_ok_at ? `Automatic off-site backups: last one ${new Date(o.last_ok_at).toLocaleString()}, kept ${o.keep_days} days.`
+        : "Automatic off-site backups: set up; the first one runs within 15 minutes.";
+    }).catch(() => {});
   }
   $("#settings").showModal();
 });
@@ -847,6 +905,23 @@ async function loadInvites() {
     list.append(li);
   }
 }
+
+$("#delete-btn").addEventListener("click", async () => {
+  const msg = $("#delete-msg");
+  const password = $("#delete-password").value;
+  if (!password) return showMsg(msg, "Enter your password to confirm.", "error");
+  if (!confirm("Delete your VibeGrind account and all its data? This can't be undone.")) return;
+  try {
+    await api("/api/me/delete", { method: "POST", body: { password } });
+    $("#settings").close();
+    state.user = null;
+    state.readiness = null;
+    showAuth("login");
+    showMsg($("#auth-error"), "Your account and its data have been deleted.", "success");
+  } catch (err) {
+    showMsg(msg, err.message, "error");
+  }
+});
 
 $("#restore-btn").addEventListener("click", async () => {
   const msg = $("#restore-msg");
@@ -911,6 +986,9 @@ $("#settings-save").addEventListener("click", async (e) => {
 (async function boot() {
   state.config = await api("/api/config").catch(() => ({}));
   setAuthMode(false);
+  $("#forgot-wrap").hidden = !state.config.password_reset;
+  $("#backup-days").textContent = state.config.backup_keep_days ?? 14;
+  if (location.hash.startsWith("#reset=")) return showAuth("reset");
   try {
     state.user = await api("/api/me");
     await startApp();

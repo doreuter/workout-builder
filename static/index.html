@@ -21,10 +21,29 @@
       <p class="muted small">
         <span id="auth-switch-text">No account yet?</span>
         <button type="button" class="link" id="auth-switch">Create one</button>
+        <span id="forgot-wrap" hidden> · <button type="button" class="link" id="forgot-link">Forgot password?</button></span>
       </p>
       <p class="muted small auth-legal">
         By creating an account you accept the <a href="/terms">terms of use</a>. See our <a href="/privacy">privacy policy</a> · <a href="/imprint">imprint</a>.
       </p>
+    </form>
+
+    <form id="forgot-form" class="card auth-card" hidden>
+      <h2>Reset your password</h2>
+      <p class="muted small">Enter your account's email. We'll send you a link to choose a new password.</p>
+      <label>Email <input name="email" type="email" autocomplete="email" required></label>
+      <p id="forgot-msg" class="small" hidden></p>
+      <button type="submit" class="primary">Send reset link</button>
+      <p class="muted small"><button type="button" class="link" data-back>Back to sign in</button></p>
+    </form>
+
+    <form id="reset-form" class="card auth-card" hidden>
+      <h2>Choose a new password</h2>
+      <label>New password <input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
+      <label>Repeat it <input name="repeat" type="password" autocomplete="new-password" minlength="8" required></label>
+      <p id="reset-msg" class="small" hidden></p>
+      <button type="submit" class="primary">Save new password</button>
+      <p class="muted small"><button type="button" class="link" data-back>Back to sign in</button></p>
     </form>
   </section>
 
@@ -167,6 +186,18 @@
         <button value="cancel" formnovalidate>Cancel</button>
         <button value="save" class="primary" id="settings-save">Save</button>
       </div>
+      <section class="admin" id="your-data">
+        <h3>Your data</h3>
+        <p class="muted small">Download everything VibeGrind stores about you, or delete your account.</p>
+        <a class="btn" href="/api/me/export" download>Download my data</a>
+        <details class="danger-zone">
+          <summary>Delete my account</summary>
+          <p class="small">This permanently deletes your account, workouts, chats and Garmin data. Copies in our encrypted backups disappear within <span id="backup-days">14</span> days.</p>
+          <label>Your password <input id="delete-password" type="password" autocomplete="current-password"></label>
+          <button type="button" class="danger" id="delete-btn">Delete my account</button>
+          <p id="delete-msg" class="small error" hidden></p>
+        </details>
+      </section>
       <section id="garmin-status-box" class="admin" hidden>
         <h3>Garmin</h3>
         <p class="small" id="garmin-status"></p>
@@ -183,6 +214,7 @@
       <section id="admin-backup" class="admin" hidden>
         <h3>Backup</h3>
         <p class="muted small">A copy of the whole database: all accounts, workouts and Garmin data. Keep it private and delete it when you no longer need it.</p>
+        <p class="small" id="offsite-status"></p>
         <a class="btn" href="/api/admin/backup" download>Download backup</a>
         <div id="restore-box" hidden>
           <h3 class="restore-title">Restore from backup</h3>

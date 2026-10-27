@@ -86,6 +86,18 @@ CREATE TABLE IF NOT EXISTS garmin_sync (
     synced_at TEXT,
     error TEXT
 );
+CREATE TABLE IF NOT EXISTS password_resets (
+    token_hash TEXT PRIMARY KEY,       -- SHA-256 of the emailed token; the token itself is never stored
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TEXT NOT NULL,
+    used_at TEXT
+);
+CREATE TABLE IF NOT EXISTS jobs (
+    name TEXT PRIMARY KEY,
+    last_run_at TEXT,
+    last_ok_at TEXT,
+    last_error TEXT
+);
 CREATE TABLE IF NOT EXISTS usage (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     day TEXT NOT NULL,
@@ -151,6 +163,58 @@ def update_profile(user_id: int, ftp, threshold_pace_s_per_km, max_hr) -> None:
 def set_password(user_id: int, password_hash: str) -> None:
     with connect() as conn:
         conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, user_id))
+
+
+def delete_user(user_id: int) -> None:
+    """Delete an account. Foreign keys cascade to workouts, usage, Garmin data and reset tokens;
+    invites the user created or used are kept but no longer point to them."""
+    with connect() as conn:
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+
+def export_user(user_id: int) -> dict:
+    """Everything stored about one user, for "Download my data" (no password hash)."""
+    with connect() as conn:
+        def rows(sql):
+            return [dict(r) for r in conn.execute(sql, (user_id,)).fetchall()]
+        user = dict(conn.execute(
+            "SELECT email, ftp, threshold_pace_s_per_km, max_hr, created_at FROM users WHERE id = ?", (user_id,)
+        ).fetchone())
+        return {
+            "account": user,
+            "invite_used": rows("SELECT code, used_at FROM invites WHERE used_by = ?"),
+            "workouts": rows("SELECT id, name, sport, workout_json, messages_json, source_filename, created_at, updated_at "
+                             "FROM workouts WHERE user_id = ? ORDER BY id"),
+            "usage": rows("SELECT day, messages, input_tokens, output_tokens, cost_usd FROM usage WHERE user_id = ? ORDER BY day"),
+            "garmin_days": rows("SELECT * FROM garmin_days WHERE user_id = ? ORDER BY day"),
+            "garmin_activities": rows("SELECT * FROM garmin_activities WHERE user_id = ? ORDER BY start_local"),
+        }
+
+
+# --- password reset --------------------------------------------------------
+
+def create_password_reset(user_id: int, token_hash: str, expires_at: str) -> None:
+    with connect() as conn:
+        # Only the newest link works: older unused ones are dropped.
+        conn.execute("DELETE FROM password_resets WHERE user_id = ? AND used_at IS NULL", (user_id,))
+        conn.execute(
+            "INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, ?)",
+            (token_hash, user_id, expires_at),
+        )
+
+
+def use_password_reset(token_hash: str, now: str, password_hash: str) -> bool:
+    """Set the new password if the token is valid, unused and not expired; mark it used. Atomic."""
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT user_id FROM password_resets WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?",
+            (token_hash, now),
+        ).fetchone()
+        if row is None:
+            return False
+        conn.execute("UPDATE password_resets SET used_at = ? WHERE token_hash = ?", (now, token_hash))
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, row["user_id"]))
+        return True
 
 
 # --- invites ---------------------------------------------------------------
@@ -275,6 +339,28 @@ def cost_this_month(month: str) -> float:
     with connect() as conn:
         row = conn.execute("SELECT COALESCE(SUM(cost_usd), 0) AS c FROM usage WHERE day LIKE ?", (f"{month}-%",)).fetchone()
         return row["c"]
+
+
+def job_state(name: str):
+    with connect() as conn:
+        return conn.execute("SELECT * FROM jobs WHERE name = ?", (name,)).fetchone()
+
+
+def set_job_state(name: str, run_at: str, ok: bool, error: str | None) -> None:
+    with connect() as conn:
+        conn.execute(
+            """INSERT INTO jobs (name, last_run_at, last_ok_at, last_error) VALUES (?, ?, ?, ?)
+               ON CONFLICT (name) DO UPDATE SET last_run_at = excluded.last_run_at,
+                 last_ok_at = COALESCE(excluded.last_ok_at, last_ok_at), last_error = excluded.last_error""",
+            (name, run_at, run_at if ok else None, error),
+        )
+
+
+def purge_old_data(usage_before: str, resets_before: str) -> None:
+    """Retention clean-up: usage counters older than the cut-off day, and spent or expired reset links."""
+    with connect() as conn:
+        conn.execute("DELETE FROM usage WHERE day < ?", (usage_before,))
+        conn.execute("DELETE FROM password_resets WHERE expires_at < ? OR used_at IS NOT NULL", (resets_before,))
 
 
 def record_usage(user_id: int, day: str, input_tokens: int, output_tokens: int, cost_usd: float) -> None:

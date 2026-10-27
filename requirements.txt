@@ -5,6 +5,8 @@ itsdangerous==2.2.0
 python-multipart==0.0.32
 fit-tool==0.9.16
 garmin-connect-personal-api-python==1.0.0
+boto3==1.43.119
+cryptography==50.0.2
 # tests
 pytest==9.1.1
 httpx==0.28.1

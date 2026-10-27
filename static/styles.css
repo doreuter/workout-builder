@@ -242,6 +242,12 @@ label { display: grid; gap: .3rem; font-size: .9rem; }
 #restore-box { display: grid; gap: .6rem; margin-top: 1rem; }
 #restore-box[hidden] { display: none; }
 .restore-title { margin-top: .5rem; }
+.danger-zone { margin-top: .9rem; }
+.danger-zone summary { cursor: pointer; color: var(--error); font-size: .9rem; }
+.danger-zone[open] { display: grid; gap: .6rem; }
+.danger-zone p { margin: .5rem 0 0; }
+button.danger { background: var(--error); border-color: var(--error); color: #fff; justify-self: start; }
+.auth-card h2 { margin: 0; }
 
 /* tabs */
 .tabs { display: flex; gap: .25rem; margin-left: 1rem; }

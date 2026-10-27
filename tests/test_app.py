@@ -739,3 +739,159 @@ def test_secondary_addresses_redirect_to_the_canonical_host(client, monkeypatch)
 def test_no_redirect_without_canonical_host(client, monkeypatch):
     monkeypatch.delenv("CANONICAL_HOST", raising=False)
     assert client.get("/", headers={"host": "vibegrind.onrender.com"}, follow_redirects=False).status_code == 200
+
+
+# --- your data: export and delete -------------------------------------------------------------
+
+def test_export_my_data(client):
+    _as(client, "exporter@example.com")
+    wid = client.post("/api/workouts").json()["id"]
+    client.post(f"/api/workouts/{wid}/chat", json={"message": "4x8"})
+    r = client.get("/api/me/export")
+    assert r.status_code == 200 and "vibegrind-my-data-" in r.headers["content-disposition"]
+    data = r.json()
+    assert data["account"]["email"] == "exporter@example.com"
+    assert "password_hash" not in r.text and "scrypt$" not in r.text
+    w = next(w for w in data["workouts"] if w["id"] == wid)
+    assert w["workout"]["name"] == "4x8 Threshold" and w["chat"][0]["text"] == "4x8"
+
+
+def test_delete_my_account(client, monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "inviter@example.com")
+    monkeypatch.setenv("APP_MODE", "hosted")
+    _as(client, "inviter@example.com")
+    code = client.post("/api/admin/invites", json={}).json()["code"]
+    client.post("/api/logout")
+    client.post("/api/register", json={"email": "leaver@example.com", "password": "longenough", "invite_code": code})
+    uid = main.db.get_user_by_email("leaver@example.com")["id"]
+    wid = client.post("/api/workouts").json()["id"]
+    client.post(f"/api/workouts/{wid}/chat", json={"message": "4x8"})
+    main.db.upsert_garmin_day(uid, "2026-10-01", {"resting_hr": 50})
+
+    assert client.post("/api/me/delete", json={"password": "wrong-password"}).status_code == 400
+    assert client.post("/api/me/delete", json={"password": "longenough"}).json() == {"ok": True}
+    assert client.get("/api/me").status_code == 401
+    assert main.db.get_user_by_email("leaver@example.com") is None
+    with main.db.connect() as conn:
+        for table in ("workouts", "usage", "garmin_days"):
+            assert conn.execute(f"SELECT COUNT(*) FROM {table} WHERE user_id = ?", (uid,)).fetchone()[0] == 0
+        inv = conn.execute("SELECT used_by, used_at FROM invites WHERE code = ?", (code,)).fetchone()
+    assert inv["used_by"] is None and inv["used_at"] is not None  # code stays spent
+
+
+# --- password reset ---------------------------------------------------------------------------
+
+def test_password_reset_flow(client, monkeypatch):
+    _as(client, "forgetful@example.com")
+    client.post("/api/logout")
+    assert client.post("/api/password-reset/request", json={"email": "forgetful@example.com"}).status_code == 503
+    assert client.get("/api/config").json()["password_reset"] is False
+
+    sent = []
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("MAIL_FROM", "VibeGrind <hello@vibegrind.app>")
+    monkeypatch.setenv("CANONICAL_HOST", "vibegrind.app")
+    monkeypatch.setattr(main.mailer, "send", lambda to, subject, text: sent.append((to, text)))
+    assert client.get("/api/config").json()["password_reset"] is True
+
+    unknown = client.post("/api/password-reset/request", json={"email": "nobody-here@example.com"}, headers={"host": "vibegrind.app"})
+    known = client.post("/api/password-reset/request", json={"email": "Forgetful@Example.com"}, headers={"host": "vibegrind.app"})
+    assert unknown.json() == known.json()  # no hint whether the account exists
+    assert len(sent) == 1 and sent[0][0] == "forgetful@example.com"
+    link = next(line for line in sent[0][1].splitlines() if "#reset=" in line)
+    assert link.startswith("https://vibegrind.app/app#reset=")
+    token = link.split("#reset=")[1]
+
+    confirm = lambda pw, t=token: client.post("/api/password-reset/confirm", json={"token": t, "password": pw}, headers={"host": "vibegrind.app"})
+    assert confirm("short").status_code == 400
+    assert confirm("brand-new-password").json() == {"ok": True}
+    assert confirm("another-password").status_code == 400  # one use only
+    assert client.post("/api/login", json={"email": "forgetful@example.com", "password": "longenough"}, headers={"host": "vibegrind.app"}).status_code == 401
+    assert client.post("/api/login", json={"email": "forgetful@example.com", "password": "brand-new-password"}, headers={"host": "vibegrind.app"}).status_code == 200
+
+    # Expired links don't work.
+    user = main.db.get_user_by_email("forgetful@example.com")
+    main.db.create_password_reset(user["id"], main._token_hash("old-token"), "2000-01-01T00:00:00+00:00")
+    assert confirm("whatever-password", "old-token").status_code == 400
+
+
+# --- retention clean-up -------------------------------------------------------------------------
+
+def test_usage_older_than_13_months_is_purged(client):
+    from datetime import datetime, timezone
+    from app import maintenance
+    _as(client, "counter@example.com")
+    uid = main.db.get_user_by_email("counter@example.com")["id"]
+    main.db.record_usage(uid, "2020-01-15", 10, 10, 0.01)
+    main.db.record_usage(uid, "2026-10-01", 10, 10, 0.01)
+    maintenance.purge(datetime(2026, 10, 27, tzinfo=timezone.utc))
+    with main.db.connect() as conn:
+        days = [r[0] for r in conn.execute("SELECT day FROM usage WHERE user_id = ?", (uid,))]
+    assert days == ["2026-10-01"]
+
+
+# --- encrypted off-site backups -------------------------------------------------------------------
+
+class FakeS3:
+    def __init__(self):
+        self.objects = {}
+
+    def put_object(self, Bucket, Key, Body):
+        self.objects[Key] = Body
+
+    def list_objects_v2(self, Bucket, Prefix):
+        return {"Contents": [{"Key": k} for k in self.objects if k.startswith(Prefix)]}
+
+    def delete_object(self, Bucket, Key):
+        del self.objects[Key]
+
+
+@pytest.fixture
+def offsite_env(monkeypatch):
+    from cryptography.fernet import Fernet
+    from app import offsite
+    for k, v in {"BACKUP_S3_ENDPOINT": "https://s3.example.com", "BACKUP_S3_BUCKET": "b",
+                 "BACKUP_S3_ACCESS_KEY_ID": "id", "BACKUP_S3_SECRET_ACCESS_KEY": "secret",
+                 "BACKUP_ENCRYPTION_KEY": Fernet.generate_key().decode(), "BACKUP_KEEP_DAYS": "14"}.items():
+        monkeypatch.setenv(k, v)
+    fake = FakeS3()
+    monkeypatch.setattr(offsite, "_client", lambda: fake)
+    return offsite, fake
+
+
+def test_offsite_backup_is_encrypted_and_pruned(client, offsite_env):
+    from datetime import datetime, timezone
+    offsite, fake = offsite_env
+    fake.objects["vibegrind/2026-09-01T0300Z.sqlite3.gz.enc"] = b"old"
+    fake.objects["vibegrind/2026-10-20T0300Z.sqlite3.gz.enc"] = b"recent"
+    fake.objects["other/keep-me.txt"] = b"not ours"
+
+    key = offsite.run(datetime(2026, 10, 27, 3, 0, tzinfo=timezone.utc))
+    blob = fake.objects[key]
+    assert not blob.startswith(SQLITE_HEADER) and b"users" not in blob  # ciphertext, not a readable database
+    assert offsite.decrypt(blob).startswith(SQLITE_HEADER)
+    assert sorted(fake.objects) == ["other/keep-me.txt", "vibegrind/2026-10-20T0300Z.sqlite3.gz.enc", key]
+
+
+def test_backup_runs_once_a_day_and_reports_failures(client, offsite_env, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from app import maintenance
+    offsite, fake = offsite_env
+    with main.db.connect() as conn:
+        conn.execute("DELETE FROM jobs")
+    t0 = datetime(2026, 10, 27, 3, 0, tzinfo=timezone.utc)
+    assert maintenance.backup_if_due(t0) is not None
+    assert maintenance.backup_if_due(t0 + timedelta(hours=5)) is None      # not due yet
+    assert maintenance.backup_if_due(t0 + timedelta(hours=25)) is not None  # due again
+
+    def broken(*a, **k):
+        raise offsite.OffsiteError("Upload to backup storage failed (EndpointConnectionError).")
+    monkeypatch.setattr(offsite, "run", broken)
+    assert maintenance.backup_if_due(t0 + timedelta(days=3)) is None
+    state = main.db.job_state("offsite_backup")
+    assert "failed" in state["last_error"] and state["last_ok_at"].startswith("2026-10-28")
+
+    monkeypatch.setenv("ADMIN_EMAILS", "backup-admin@example.com")
+    _as(client, "backup-admin@example.com")
+    status = client.get("/api/admin/offsite").json()
+    assert status["configured"] is True and "failed" in status["last_error"]

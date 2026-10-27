@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import os
 import re
 import secrets
@@ -19,12 +21,13 @@ from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import backup, config, db, garmin, llm, readiness, security, zwift
+from . import backup, config, db, garmin, llm, mailer, maintenance, offsite, readiness, security, zwift
 from .auth import current_user, hash_password, verify_password
 from .exporters import ExportError, safe_filename, to_fit, to_zwo
 from .importers import MAX_ZWO_BYTES, ImportError_, from_fit, from_zwo
 from .workout import ENABLED_SPORTS, flatten, stats
 
+logger = logging.getLogger("vibegrind")
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 ZWIFT_BACKUPS = db.DB_PATH.parent / "zwift-backups"
@@ -41,6 +44,8 @@ def _session_secret() -> str:
 
 
 db.init_db()
+maintenance.purge()  # retention clean-up on every start; the thread repeats it
+maintenance.start()
 app = FastAPI(title="VibeGrind")
 app.add_middleware(
     SessionMiddleware,
@@ -103,7 +108,8 @@ def _user_json(user) -> dict:
 @app.get("/api/config")
 def public_config():
     """What the sign-in page needs to know before anyone is signed in."""
-    return {"hosted": config.hosted(), "invites_required": config.invites_required()}
+    return {"hosted": config.hosted(), "invites_required": config.invites_required(),
+            "password_reset": mailer.available(), "backup_keep_days": offsite.keep_days()}
 
 
 @app.get("/healthz")
@@ -163,6 +169,97 @@ def me(user=Depends(current_user)):
 def update_profile(body: Profile, user=Depends(current_user)):
     db.update_profile(user["id"], body.ftp, body.threshold_pace_s_per_km, body.max_hr)
     return _user_json(db.get_user(user["id"]))
+
+
+# --- your data: export and delete -------------------------------------------------
+
+class PasswordConfirm(BaseModel):
+    password: str = Field(max_length=200)
+
+
+@app.get("/api/me/export")
+def export_my_data(user=Depends(current_user)):
+    """Everything we store about the signed-in user, as a JSON download."""
+    data = db.export_user(user["id"])
+    for w in data["workouts"]:
+        w["workout"] = json.loads(w.pop("workout_json")) if w["workout_json"] else None
+        w["chat"] = llm.visible_transcript(json.loads(w.pop("messages_json")))
+    data["exported_at"] = datetime.now(timezone.utc).isoformat()
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return Response(
+        json.dumps(data, indent=2, ensure_ascii=False), media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="vibegrind-my-data-{stamp}.json"'},
+    )
+
+
+@app.post("/api/me/delete")
+def delete_my_account(body: PasswordConfirm, request: Request, user=Depends(current_user)):
+    """Delete the account and everything linked to it. Asks for the password as confirmation."""
+    security.check_rate(request, "delete-account", limit=5, window_s=900)
+    if not verify_password(body.password, user["password_hash"]):
+        raise HTTPException(400, "That password isn't right.")
+    if garmin.is_owner(user):
+        (db.DB_PATH.parent / "garmin-bearer-token.json").unlink(missing_ok=True)
+    db.delete_user(user["id"])
+    request.session.clear()
+    return {"ok": True}
+
+
+# --- password reset by email ------------------------------------------------------
+
+RESET_VALID_FOR = timedelta(hours=1)
+
+
+class ResetRequestIn(BaseModel):
+    email: str = Field(max_length=200)
+
+
+class ResetConfirmIn(BaseModel):
+    token: str = Field(max_length=200)
+    password: str = Field(max_length=200)
+
+
+def _public_base_url(request: Request) -> str:
+    canonical = (os.environ.get("CANONICAL_HOST") or "").strip()
+    return f"https://{canonical}" if canonical else str(request.base_url).rstrip("/")
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+@app.post("/api/password-reset/request")
+def request_password_reset(body: ResetRequestIn, request: Request):
+    """Email a one-hour reset link. The answer is the same whether or not the account exists."""
+    security.check_rate(request, "password-reset", limit=5, window_s=3600)
+    if not mailer.available():
+        raise HTTPException(503, "Password reset by email isn't available. Ask the person who invited you.")
+    user = db.get_user_by_email(body.email.strip().lower())
+    if user is not None:
+        token = secrets.token_urlsafe(32)
+        expires = (datetime.now(timezone.utc) + RESET_VALID_FOR).isoformat()
+        db.create_password_reset(user["id"], _token_hash(token), expires)
+        link = f"{_public_base_url(request)}/app#reset={token}"
+        try:
+            mailer.send(user["email"], "Reset your VibeGrind password", (
+                "Hi,\n\nsomeone (hopefully you) asked to reset the password for your VibeGrind account.\n\n"
+                f"Choose a new password here (the link works once, for one hour):\n{link}\n\n"
+                "If you didn't ask for this, ignore this email; your password stays the same.\n\nVibeGrind\n"
+            ))
+        except mailer.MailError:
+            logger.exception("Password reset email failed")  # don't reveal to the caller that the account exists
+    return {"ok": True, "message": "If an account exists for that email, we've sent a reset link. It's valid for one hour."}
+
+
+@app.post("/api/password-reset/confirm")
+def confirm_password_reset(body: ResetConfirmIn, request: Request):
+    security.check_rate(request, "password-reset-confirm", limit=10, window_s=900)
+    if len(body.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters.")
+    now = datetime.now(timezone.utc).isoformat()
+    if not db.use_password_reset(_token_hash(body.token), now, hash_password(body.password)):
+        raise HTTPException(400, "This reset link is invalid, already used or expired. Ask for a new one.")
+    return {"ok": True}
 
 
 # --- Garmin readiness ------------------------------------------------------------
@@ -227,6 +324,17 @@ def download_backup(user=Depends(_admin)):
         path, media_type="application/vnd.sqlite3", filename=f"vibegrind-backup-{stamp}.sqlite3",
         background=BackgroundTask(path.unlink, missing_ok=True),
     )
+
+
+@app.get("/api/admin/offsite")
+def offsite_status(user=Depends(_admin)):
+    state = db.job_state("offsite_backup")
+    return {
+        "configured": offsite.configured(),
+        "keep_days": offsite.keep_days(),
+        "last_ok_at": state["last_ok_at"] if state else None,
+        "last_error": state["last_error"] if state else None,
+    }
 
 
 @app.get("/api/admin/restore")
