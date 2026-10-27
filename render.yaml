@@ -34,3 +34,5 @@ services:
         sync: false          # paste a new key made just for the hosted app
       - key: ADMIN_EMAILS
         sync: false          # your email; that account can sign up without a code and create invites
+      - key: GARMIN_PERSONAL_API_KEY
+        sync: false          # optional: your Garmin Connect Personal API key, for your Readiness dashboard

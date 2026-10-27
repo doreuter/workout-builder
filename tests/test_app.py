@@ -478,3 +478,108 @@ def test_security_headers_and_cross_site_block(client):
     assert evil.status_code == 403
     same = client.post("/api/login", json={"email": "nobody2@example.com", "password": "longenough"}, headers={"Origin": "http://testserver"})
     assert same.status_code == 401
+
+
+# --- Garmin readiness -------------------------------------------------------------------
+
+from datetime import date as _date, timedelta as _td  # noqa: E402
+
+from app import garmin, readiness  # noqa: E402
+
+
+class FakeGarmin:
+    """Answers like the Personal API (shapes from Garmin's OpenAPI spec)."""
+
+    def __init__(self, today, days=40, bad_last_night=False):
+        self.today, self.days, self.bad = today, days, bad_last_night
+        self.calls = []
+
+    def _range(self, lo, hi):
+        d = max(lo, self.today - _td(days=self.days - 1))
+        while d <= hi:
+            yield d
+            d += _td(days=1)
+
+    def get_daily_hrv_summaries(self, lo, hi):
+        self.calls.append(("hrv", lo, hi))
+        out = []
+        for d in self._range(lo, hi):
+            last = 38 if (self.bad and d == self.today) else 60 + (d.toordinal() % 5)
+            out.append({"calendarDate": d.isoformat(), "lastNightAvg": last, "weeklyAvg": 61,
+                        "baseline": {"lowUpper": 48, "balancedLow": 55, "balancedUpper": 70}, "status": "BALANCED"})
+        return {"hrvSummaries": out}
+
+    def get_daily_sleep_summaries(self, lo, hi):
+        return [{"calendarDate": d.isoformat(), "sleepTimeSeconds": (5 if self.bad and d == self.today else 7.5) * 3600,
+                 "deepSleepSeconds": 5400, "lightSleepSeconds": 14400, "remSleepSeconds": 6000, "awakeSleepSeconds": 900,
+                 "sleepScores": {"overall": {"value": 45 if self.bad and d == self.today else 82, "qualifierKey": "GOOD"}}}
+                for d in self._range(lo, hi)]
+
+    def get_daily_summaries(self, lo, hi):
+        return {"data": [{"calendarDate": d.isoformat(),
+                          "heartRate": {"restingValue": 56 if self.bad and d == self.today else 48},
+                          "bodyBattery": {"maxValue": 30 if self.bad and d == self.today else 85, "minValue": 20},
+                          "stress": {"avgLevel": -1}} for d in self._range(lo, hi)]}
+
+    def search_activities(self, start, limit, start_date, end_date):
+        acts = [{"activityId": 1000 + d.toordinal(), "activityName": "Ride", "startTimeLocal": f"{d} 07:00:00",
+                 "activityType": {"typeKey": "virtual_ride"}, "duration": 3600, "trainingStressScore": 60,
+                 "activityTrainingLoad": 80, "normPower": 230}
+                for d in self._range(start_date, end_date) if d.toordinal() % 2 == 0]
+        return acts[start:start + limit]
+
+
+@pytest.fixture
+def garmin_owner(client, monkeypatch):
+    monkeypatch.setenv("GARMIN_PERSONAL_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("GARMIN_OWNER_EMAIL", "owner@example.com")
+    creds = {"email": "owner@example.com", "password": "longenough"}
+    if client.post("/api/register", json=creds).status_code != 200:
+        client.post("/api/login", json=creds)
+    return main.db.get_user_by_email("owner@example.com")
+
+
+def test_garmin_sync_and_readiness(client, garmin_owner, monkeypatch):
+    today = _date.today()
+    fake = FakeGarmin(today)
+    monkeypatch.setattr(garmin, "_client", lambda: fake)
+    assert client.get("/api/me").json()["garmin"] is True
+
+    data = client.get("/api/readiness").json()
+    assert data["sync_error"] is None and data["is_today"] is True
+    t = data["today"]
+    assert t["score"] >= 75 and t["verdict"]["key"] == "ready"
+    hrv = next(c for c in t["components"] if c["key"] == "hrv")
+    assert "within your usual range (55–70)" in hrv["note"]
+    assert t["load"]["chronic"] > 0 and t["load"]["ratio"] is not None
+    assert len(data["trend"]) == 30 and data["trend"][-1]["sleep_hours"] == 7.5
+    assert data["trend"][-1]["load"] in (0, 80)
+    assert data["activities"] and data["activities"][0]["training_load"] == 80
+
+    # A second visit within 3 hours doesn't call Garmin again; refresh=1 does, and only re-reads recent days.
+    n = len(fake.calls)
+    client.get("/api/readiness")
+    assert len(fake.calls) == n
+    client.get("/api/readiness?refresh=1")
+    assert fake.calls[-1][1] >= today - _td(days=garmin.RESYNC_DAYS)
+
+
+def test_readiness_drops_after_a_bad_night(client, garmin_owner, monkeypatch):
+    monkeypatch.setattr(garmin, "_client", lambda: FakeGarmin(_date.today(), bad_last_night=True))
+    t = client.get("/api/readiness?refresh=1").json()["today"]
+    assert t["score"] < 55 and t["verdict"]["key"] in ("easy", "recover")
+    rhr = next(c for c in t["components"] if c["key"] == "resting_hr")
+    assert "8 bpm above" in rhr["note"]
+
+
+def test_garmin_only_for_owner_and_errors_are_shown(client, garmin_owner, monkeypatch):
+    def broken():
+        raise garmin.GarminError("Garmin rejected the API key. It may have expired: create a new one in Garmin Connect.")
+    monkeypatch.setattr(garmin, "_client", broken)
+    r = client.get("/api/readiness?refresh=1").json()
+    assert "expired" in r["sync_error"]
+
+    client.post("/api/logout")
+    client.post("/api/register", json={"email": "notowner@example.com", "password": "longenough"})
+    assert client.get("/api/me").json()["garmin"] is False
+    assert client.get("/api/readiness").status_code == 404

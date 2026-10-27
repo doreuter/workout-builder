@@ -149,6 +149,7 @@ $("#auth-form").addEventListener("submit", async (e) => {
 $("#logout-btn").addEventListener("click", async () => {
   await api("/api/logout", { method: "POST" });
   state.user = null;
+  state.readiness = null;
   state.currentId = null;
   showAuth();
 });
@@ -160,6 +161,8 @@ async function startApp() {
   $("#app").hidden = false;
   $("#user-email").textContent = state.user.email;
   renderQuota(state.user.messages_left_today);
+  $("#tabs").hidden = !state.user.garmin;
+  showView("workouts");
   const integrations = await api("/api/integrations").catch(() => ({}));
   state.zwiftAvailable = !!integrations.zwift?.available;
   await loadList();
@@ -558,6 +561,249 @@ $("#import-file").addEventListener("change", async (e) => {
   form.append("file", file);
   openImported(api("/api/import/file", { method: "POST", form }));
 });
+
+// --- readiness dashboard ----------------------------------------------------------------
+
+const PART_NAMES = { hrv: "HRV", sleep: "Sleep", resting_hr: "Resting heart rate", body_battery: "Body Battery", load: "Training load" };
+
+function showView(view) {
+  state.viewName = view;
+  $("#app").classList.toggle("view-readiness", view === "readiness");
+  $("#readiness").hidden = view !== "readiness";
+  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
+  if (view === "readiness") loadReadiness(false);
+}
+
+document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => showView(t.dataset.view)));
+$("#r-refresh").addEventListener("click", () => loadReadiness(true));
+
+async function loadReadiness(refresh) {
+  const btn = $("#r-refresh");
+  btn.disabled = true;
+  btn.textContent = "Refreshing…";
+  if (!state.readiness) $("#r-loading").hidden = false;
+  try {
+    state.readiness = await api(`/api/readiness${refresh ? "?refresh=1" : ""}`);
+    renderReadiness(state.readiness);
+  } catch (err) {
+    $("#r-error").textContent = err.message;
+    $("#r-error").hidden = false;
+  } finally {
+    $("#r-loading").hidden = true;
+    btn.disabled = false;
+    btn.textContent = "Refresh from Garmin";
+  }
+}
+
+function fmtDay(iso, opts = { weekday: "short", day: "numeric", month: "short" }) {
+  return new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, opts);
+}
+
+function renderReadiness(d) {
+  $("#r-error").hidden = !d.sync_error;
+  if (d.sync_error) $("#r-error").textContent = `${d.sync_error} Showing the data stored so far.`;
+  $("#r-synced").textContent = d.synced_at
+    ? `Last synced with Garmin ${new Date(d.synced_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`
+    : "Not synced with Garmin yet";
+  $("#r-body").hidden = false;
+
+  const t = d.today;
+  $("#r-score").textContent = t?.score ?? "–";
+  const status = $("#r-status");
+  status.replaceChildren();
+  if (t?.verdict) {
+    status.append(el("span", { class: `r-dot status-${t.verdict.key}`, "aria-hidden": "true" }), t.verdict.title);
+    $("#r-advice").textContent = t.verdict.advice;
+  } else {
+    status.textContent = "Not enough data yet";
+    $("#r-advice").textContent = "Wear your watch overnight and sync it; readiness needs at least two of the inputs.";
+  }
+  $("#r-day").textContent = !t ? "" : d.is_today
+    ? `For today, ${fmtDay(t.day)}`
+    : `Based on ${fmtDay(t.day)}: no data for today yet. Sync your watch, then refresh.`;
+
+  const list = $("#r-components");
+  list.replaceChildren();
+  for (const c of t?.components || []) {
+    const li = el("li", { class: `r-part${c.score == null ? " missing" : ""}` });
+    const head = el("div", { class: "r-part-head" });
+    head.append(el("span", {}, `${PART_NAMES[c.key]} · ${Math.round(c.weight * 100)}%`), el("span", {}, c.score == null ? "–" : String(c.score)));
+    const bar = el("div", { class: "r-bar" });
+    const fill = el("i");
+    fill.style.width = `${c.score ?? 0}%`;
+    bar.append(fill);
+    li.append(head, bar, el("div", { class: "r-part-note" }, c.note));
+    list.append(li);
+  }
+
+  const load = t?.load;
+  const grid = $("#r-load");
+  grid.replaceChildren();
+  const stat = (label, value) => {
+    const box = el("div");
+    box.append(el("span", { class: "stat-label" }, label), el("span", { class: "stat" }, value));
+    grid.append(box);
+  };
+  stat("7-day avg", load ? String(Math.round(load.acute)) : "–");
+  stat("28-day avg", load ? String(Math.round(load.chronic)) : "–");
+  stat("Ratio", load?.ratio != null ? `${load.ratio.toFixed(2)}×` : "–");
+  stat("Last 48 h", load ? String(load.last_48h) : "–");
+  const r = load?.ratio;
+  $("#r-load-note").textContent = r == null ? "Needs a few weeks of activities with training load."
+    : r > 1.5 ? "Load is ramping up fast compared with your usual. Plan some easier days."
+    : r > 1.3 ? "Load is a bit higher than usual: fine for a block, watch your recovery."
+    : r < 0.8 ? "Lighter than usual: you're fresh, but fitness may slip if it lasts."
+    : "Load is in a sustainable range.";
+
+  renderTrends(d.trend);
+  renderActivities(d.activities);
+}
+
+const TRENDS = [
+  { key: "readiness", title: "Readiness", unit: "", kind: "line", min: 0, max: 100 },
+  { key: "hrv", title: "HRV (overnight)", unit: " ms", kind: "line", band: ["hrv_low", "hrv_high"], bandLabel: "usual range" },
+  { key: "resting_hr", title: "Resting heart rate", unit: " bpm", kind: "line" },
+  { key: "sleep_hours", title: "Sleep", unit: " h", kind: "bar", min: 0, extra: "sleep_score", extraLabel: "score",
+    format: (h) => `${Math.floor(h)} h ${String(Math.round((h % 1) * 60)).padStart(2, "0")} min` },
+  { key: "body_battery", title: "Body Battery (overnight high)", unit: "", kind: "bar", min: 0, max: 100 },
+  { key: "load", title: "Daily training load", unit: "", kind: "bar", min: 0 },
+];
+
+function renderTrends(trend) {
+  const box = $("#r-trends");
+  box.replaceChildren();
+  for (const spec of TRENDS) box.append(trendChart(spec, trend));
+}
+
+function trendChart(spec, trend) {
+  const card = el("article", { class: "card r-chart" });
+  const values = trend.map((p) => p[spec.key]);
+  const show = (v) => (spec.format ? spec.format(v) : `${v}${spec.unit}`);
+  const latest = [...trend].reverse().find((p) => p[spec.key] != null);
+  card.append(el("h3", {}, spec.title));
+  card.append(el("p", { class: "r-latest" }, latest
+    ? `Latest ${fmtDay(latest.day, { day: "numeric", month: "short" })}: ${show(latest[spec.key])}`
+      + (spec.band && latest[spec.band[0]] ? ` · usual ${latest[spec.band[0]]}–${latest[spec.band[1]]}${spec.unit}` : "")
+    : "No data yet"));
+
+  const W = 320, H = 120, padL = 26, padR = 4, padT = 6, padB = 16;
+  const nums = values.filter((v) => v != null);
+  if (spec.band) trend.forEach((p) => { if (p[spec.band[0]]) nums.push(p[spec.band[0]], p[spec.band[1]]); });
+  let lo = spec.min ?? Math.min(...nums), hi = spec.max ?? Math.max(...nums);
+  if (!nums.length) { lo = 0; hi = 1; }
+  if (spec.min == null) lo = Math.floor(lo - (hi - lo) * 0.15 - 1);
+  if (spec.max == null) hi = Math.ceil(hi + (hi - lo) * 0.1 + 1);
+  const n = trend.length;
+  const step = (W - padL - padR) / n;
+  const x = (i) => padL + step * (i + 0.5);
+  const y = (v) => padT + (H - padT - padB) * (1 - (v - lo) / (hi - lo || 1));
+
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", `${spec.title}, last 30 days`);
+  const add = (tag, attrs, text) => {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    if (text != null) node.textContent = text;
+    svg.append(node);
+    return node;
+  };
+
+  // Recessive grid: three lines with labels on the left.
+  for (const v of [lo, (lo + hi) / 2, hi]) {
+    add("line", { x1: padL, x2: W - padR, y1: y(v), y2: y(v), class: "gridline" });
+    add("text", { x: padL - 4, y: y(v) + 3, "text-anchor": "end", class: "axis-label" }, Math.round(v));
+  }
+  [0, 14, n - 1].forEach((i) => add("text", { x: x(i), y: H - 3, "text-anchor": "middle", class: "axis-label" },
+    fmtDay(trend[i].day, { day: "numeric", month: "short" })));
+
+  if (spec.band) {
+    const pts = trend.map((p, i) => p[spec.band[0]] ? [x(i), y(p[spec.band[1]]), y(p[spec.band[0]])] : null).filter(Boolean);
+    if (pts.length > 1) {
+      const top = pts.map((p) => `${p[0]},${p[1]}`).join(" ");
+      const bottom = pts.reverse().map((p) => `${p[0]},${p[2]}`).join(" ");
+      add("polygon", { points: `${top} ${bottom}`, class: "band" });
+    }
+  }
+
+  if (spec.kind === "line") {
+    // Break the line at missing days instead of bridging gaps.
+    let seg = [];
+    const flush = () => { if (seg.length > 1) add("polyline", { points: seg.join(" "), class: "line" }); seg = []; };
+    values.forEach((v, i) => (v == null ? flush() : seg.push(`${x(i)},${y(v)}`)));
+    flush();
+    values.forEach((v, i) => {  // lone points between gaps still need a mark
+      if (v != null && values[i - 1] == null && values[i + 1] == null) add("circle", { cx: x(i), cy: y(v), r: 2.5, class: "hover-dot" });
+    });
+  } else {
+    const bw = Math.max(2, step - 2);  // 2px gap between bars
+    values.forEach((v, i) => {
+      if (v == null || v <= 0) return;
+      const top = y(v), base = y(Math.max(lo, 0));
+      const r = Math.min(2, bw / 2);
+      add("path", { class: "bar", d: `M${x(i) - bw / 2},${base} V${top + r} q0,-${r} ${r},-${r} H${x(i) + bw / 2 - r} q${r},0 ${r},${r} V${base} Z` });
+    });
+  }
+
+  // Hover: a hit column per day, wider than the mark; crosshair + tooltip.
+  const hoverLine = add("line", { class: "hover-line", y1: padT, y2: H - padB, visibility: "hidden" });
+  const hoverDot = add("circle", { r: 3.5, class: "hover-dot", visibility: "hidden" });
+  const tip = el("div", { class: "tooltip", hidden: "" });
+  trend.forEach((p, i) => {
+    const hit = add("rect", { x: x(i) - step / 2, y: 0, width: step, height: H, fill: "transparent" });
+    hit.addEventListener("mouseenter", () => {
+      const v = p[spec.key];
+      hoverLine.setAttribute("x1", x(i));
+      hoverLine.setAttribute("x2", x(i));
+      hoverLine.setAttribute("visibility", "visible");
+      if (v != null && spec.kind === "line") {
+        hoverDot.setAttribute("cx", x(i));
+        hoverDot.setAttribute("cy", y(v));
+        hoverDot.setAttribute("visibility", "visible");
+      } else hoverDot.setAttribute("visibility", "hidden");
+      let text = `${fmtDay(p.day)}: ${v == null ? "no data" : show(v)}`;
+      if (spec.extra && p[spec.extra] != null) text += ` · ${spec.extraLabel} ${p[spec.extra]}`;
+      if (spec.band && p[spec.band[0]]) text += ` · ${spec.bandLabel} ${p[spec.band[0]]}–${p[spec.band[1]]}`;
+      tip.textContent = text;
+      // Position relative to the card (SVG elements have no offsetTop).
+      const rect = svg.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+      const left = rect.left - cardRect.left + (x(i) / W) * rect.width;
+      tip.style.left = `${Math.min(Math.max(left, 110), cardRect.width - 110)}px`;
+      tip.style.top = `${rect.top - cardRect.top + ((v != null && spec.kind === "line" ? y(v) : padT) / H) * rect.height - 6}px`;
+      tip.hidden = false;
+    });
+  });
+  svg.addEventListener("mouseleave", () => {
+    hoverLine.setAttribute("visibility", "hidden");
+    hoverDot.setAttribute("visibility", "hidden");
+    tip.hidden = true;
+  });
+  card.append(svg, tip);
+  return card;
+}
+
+function renderActivities(acts) {
+  const body = $("#r-acts");
+  body.replaceChildren();
+  if (!acts.length) {
+    const tr = el("tr");
+    const td = el("td", { colspan: "7", class: "muted" }, "No activities in the last 14 days.");
+    tr.append(td);
+    body.append(tr);
+    return;
+  }
+  const n = (v, digits = 0) => (v == null ? "–" : Number(v).toFixed(digits));
+  for (const a of acts) {
+    const tr = el("tr");
+    const effect = a.te_label ? a.te_label.toLowerCase().replace(/_/g, " ") : (a.aerobic_te != null ? `aerobic ${n(a.aerobic_te, 1)}` : "–");
+    [fmtDay(a.day), a.name || a.type_key, a.duration_s ? fmtDuration(Math.round(a.duration_s)) : "–",
+      a.norm_power ? `${n(a.norm_power)} W` : "–", n(a.tss), n(a.training_load), effect]
+      .forEach((v) => tr.append(el("td", {}, v)));
+    body.append(tr);
+  }
+}
 
 // --- settings --------------------------------------------------------------------------
 

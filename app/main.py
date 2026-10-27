@@ -7,7 +7,7 @@ import os
 import re
 import secrets
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import anthropic
@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import config, db, llm, security, zwift
+from . import config, db, garmin, llm, readiness, security, zwift
 from .auth import current_user, hash_password, verify_password
 from .exporters import ExportError, safe_filename, to_fit, to_zwo
 from .importers import MAX_ZWO_BYTES, ImportError_, from_fit, from_zwo
@@ -86,6 +86,7 @@ def _user_json(user) -> dict:
         "max_hr": user["max_hr"],
         "is_admin": _is_admin(user),
         "messages_left_today": _messages_left(user),
+        "garmin": garmin.is_owner(user),
     }
 
 
@@ -152,6 +153,31 @@ def me(user=Depends(current_user)):
 def update_profile(body: Profile, user=Depends(current_user)):
     db.update_profile(user["id"], body.ftp, body.threshold_pace_s_per_km, body.max_hr)
     return _user_json(db.get_user(user["id"]))
+
+
+# --- Garmin readiness ------------------------------------------------------------
+
+@app.get("/api/readiness")
+def get_readiness(refresh: bool = False, user=Depends(current_user)):
+    """Readiness dashboard data. Syncs from Garmin first when the last sync is a few hours old."""
+    if not garmin.is_owner(user):
+        raise HTTPException(404, "Garmin isn't connected for this account.")
+    sync_error = None
+    try:
+        garmin.sync(user, force=refresh)
+    except garmin.GarminError as e:
+        sync_error = str(e)  # still show what's stored
+    today = date.today()
+    since = (today - timedelta(days=70)).isoformat()
+    data = readiness.build(db.garmin_days(user["id"], since), db.garmin_activities(user["id"], since), today)
+    recent = [dict(a) for a in db.garmin_activities(user["id"], (today - timedelta(days=14)).isoformat())][::-1][:10]
+    state = db.garmin_sync_state(user["id"])
+    return {
+        **data,
+        "activities": recent,
+        "synced_at": state["synced_at"] if state else None,
+        "sync_error": sync_error,
+    }
 
 
 # --- admin: invites ------------------------------------------------------------

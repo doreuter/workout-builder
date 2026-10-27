@@ -37,6 +37,55 @@ CREATE TABLE IF NOT EXISTS invites (
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     used_at TEXT
 );
+CREATE TABLE IF NOT EXISTS garmin_days (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    day TEXT NOT NULL,
+    hrv_last_night INTEGER,
+    hrv_weekly_avg INTEGER,
+    hrv_low_upper INTEGER,
+    hrv_balanced_low INTEGER,
+    hrv_balanced_upper INTEGER,
+    hrv_status TEXT,
+    resting_hr INTEGER,
+    sleep_seconds INTEGER,
+    deep_seconds INTEGER,
+    light_seconds INTEGER,
+    rem_seconds INTEGER,
+    awake_seconds INTEGER,
+    sleep_score INTEGER,
+    sleep_qualifier TEXT,
+    bb_max INTEGER,
+    bb_min INTEGER,
+    bb_charged INTEGER,
+    bb_drained INTEGER,
+    stress_avg INTEGER,
+    PRIMARY KEY (user_id, day)
+);
+CREATE TABLE IF NOT EXISTS garmin_activities (
+    activity_id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    day TEXT NOT NULL,
+    start_local TEXT,
+    name TEXT,
+    type_key TEXT,
+    duration_s REAL,
+    avg_power REAL,
+    norm_power REAL,
+    tss REAL,
+    intensity_factor REAL,
+    training_load REAL,
+    aerobic_te REAL,
+    anaerobic_te REAL,
+    te_label TEXT,
+    vo2max REAL,
+    avg_hr REAL
+);
+CREATE INDEX IF NOT EXISTS idx_garmin_activities_day ON garmin_activities(user_id, day);
+CREATE TABLE IF NOT EXISTS garmin_sync (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    synced_at TEXT,
+    error TEXT
+);
 CREATE TABLE IF NOT EXISTS usage (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     day TEXT NOT NULL,
@@ -138,6 +187,80 @@ def create_user_with_invite(email: str, password_hash: str, code: str | None) ->
         if code is not None:
             conn.execute("UPDATE invites SET used_by = ? WHERE code = ?", (user_id, code))
         return user_id
+
+
+# --- Garmin ----------------------------------------------------------------
+
+GARMIN_DAY_FIELDS = (
+    "hrv_last_night", "hrv_weekly_avg", "hrv_low_upper", "hrv_balanced_low", "hrv_balanced_upper", "hrv_status",
+    "resting_hr", "sleep_seconds", "deep_seconds", "light_seconds", "rem_seconds", "awake_seconds",
+    "sleep_score", "sleep_qualifier", "bb_max", "bb_min", "bb_charged", "bb_drained", "stress_avg",
+)
+GARMIN_ACTIVITY_FIELDS = (
+    "day", "start_local", "name", "type_key", "duration_s", "avg_power", "norm_power", "tss",
+    "intensity_factor", "training_load", "aerobic_te", "anaerobic_te", "te_label", "vo2max", "avg_hr",
+)
+
+
+def upsert_garmin_day(user_id: int, day: str, values: dict) -> None:
+    """Merge one day's values; fields not given (or None) keep what's stored."""
+    cols = [k for k in values if k in GARMIN_DAY_FIELDS]
+    if not cols:
+        return
+    sets = ", ".join(f"{c} = COALESCE(excluded.{c}, {c})" for c in cols)
+    with connect() as conn:
+        conn.execute(
+            f"""INSERT INTO garmin_days (user_id, day, {", ".join(cols)})
+                VALUES (?, ?, {", ".join("?" * len(cols))})
+                ON CONFLICT (user_id, day) DO UPDATE SET {sets}""",
+            (user_id, day, *(values[c] for c in cols)),
+        )
+
+
+def upsert_garmin_activity(user_id: int, activity_id: int, values: dict) -> None:
+    cols = list(GARMIN_ACTIVITY_FIELDS)
+    with connect() as conn:
+        conn.execute(
+            f"""INSERT INTO garmin_activities (activity_id, user_id, {", ".join(cols)})
+                VALUES (?, ?, {", ".join("?" * len(cols))})
+                ON CONFLICT (activity_id) DO UPDATE SET {", ".join(f"{c} = excluded.{c}" for c in cols)}""",
+            (activity_id, user_id, *(values.get(c) for c in cols)),
+        )
+
+
+def garmin_days(user_id: int, since: str):
+    with connect() as conn:
+        return conn.execute(
+            "SELECT * FROM garmin_days WHERE user_id = ? AND day >= ? ORDER BY day", (user_id, since)
+        ).fetchall()
+
+
+def garmin_activities(user_id: int, since: str):
+    with connect() as conn:
+        return conn.execute(
+            "SELECT * FROM garmin_activities WHERE user_id = ? AND day >= ? ORDER BY start_local", (user_id, since)
+        ).fetchall()
+
+
+def garmin_latest_day(user_id: int) -> str | None:
+    with connect() as conn:
+        row = conn.execute("SELECT MAX(day) AS d FROM garmin_days WHERE user_id = ?", (user_id,)).fetchone()
+        return row["d"]
+
+
+def garmin_sync_state(user_id: int):
+    with connect() as conn:
+        return conn.execute("SELECT * FROM garmin_sync WHERE user_id = ?", (user_id,)).fetchone()
+
+
+def set_garmin_sync_state(user_id: int, synced_at: str | None, error: str | None) -> None:
+    with connect() as conn:
+        conn.execute(
+            """INSERT INTO garmin_sync (user_id, synced_at, error) VALUES (?, ?, ?)
+               ON CONFLICT (user_id) DO UPDATE SET
+                 synced_at = COALESCE(excluded.synced_at, synced_at), error = excluded.error""",
+            (user_id, synced_at, error),
+        )
 
 
 # --- usage -----------------------------------------------------------------

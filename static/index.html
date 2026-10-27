@@ -29,6 +29,10 @@
     <header class="topbar">
       <button class="icon-btn" id="menu-btn" aria-label="Show workouts">☰</button>
       <strong class="brand">Workout Builder</strong>
+      <nav class="tabs" id="tabs" hidden>
+        <button class="tab active" data-view="workouts">Workouts</button>
+        <button class="tab" data-view="readiness">Readiness</button>
+      </nav>
       <span class="spacer"></span>
       <span id="user-email" class="muted small hide-sm"></span>
       <button id="settings-btn">Settings</button>
@@ -40,6 +44,57 @@
       <button class="wide import-btn" id="import-btn">Import workout</button>
       <ul id="workout-list" class="workout-list"></ul>
     </aside>
+
+    <section class="readiness" id="readiness" hidden>
+      <div class="r-head">
+        <div>
+          <h1>Readiness</h1>
+          <p class="muted small" id="r-synced"></p>
+        </div>
+        <button id="r-refresh">Refresh from Garmin</button>
+      </div>
+      <p class="r-error" id="r-error" role="alert" hidden></p>
+      <div class="r-loading muted" id="r-loading">Loading your Garmin data…</div>
+
+      <div id="r-body" hidden>
+        <div class="r-top">
+          <article class="card r-hero" id="r-hero">
+            <div class="r-score-wrap">
+              <span class="r-score" id="r-score">–</span>
+              <span class="r-of">/100</span>
+            </div>
+            <div class="r-verdict">
+              <p class="r-status" id="r-status"></p>
+              <p id="r-advice"></p>
+              <p class="muted small" id="r-day"></p>
+            </div>
+            <p class="muted small r-note">The app's own estimate from your Garmin HRV, sleep, resting heart rate, Body Battery and training load. Garmin's Personal API doesn't include Garmin's Training Readiness score.</p>
+          </article>
+
+          <article class="card r-parts">
+            <h2>What's behind it</h2>
+            <ul id="r-components"></ul>
+          </article>
+
+          <article class="card r-load">
+            <h2>Training load</h2>
+            <div class="r-load-grid" id="r-load"></div>
+            <p class="muted small" id="r-load-note"></p>
+          </article>
+        </div>
+
+        <h2 class="r-section">Last 30 days</h2>
+        <div class="r-trends" id="r-trends"></div>
+
+        <h2 class="r-section">Recent activities</h2>
+        <div class="card r-acts-wrap">
+          <table class="r-acts">
+            <thead><tr><th>Date</th><th>Activity</th><th>Time</th><th>NP</th><th>TSS</th><th>Load</th><th>Effect</th></tr></thead>
+            <tbody id="r-acts"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
 
     <main class="main">
       <section class="chat card">

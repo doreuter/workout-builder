@@ -79,6 +79,21 @@ For a workout imported from the Zwift folder, **Update in Zwift** overwrites tha
 
 Zwift-only display attributes (`pace`, `OverUnder`, `FlatRoad`) aren't carried over.
 
+## Readiness dashboard (Garmin)
+
+The **Readiness** tab shows your Garmin data: overnight HRV against your baseline, resting heart rate, sleep, Body Battery, and training load from your activities, plus 30-day trends and recent activities.
+
+It uses the [Garmin Connect Personal API](https://developer.garmin.com/gc-developer-program/personal/personal-api), which is for **one person's own data** (Garmin: not for apps serving multiple users). So exactly one account sees it:
+
+| Variable | Purpose |
+|---|---|
+| `GARMIN_PERSONAL_API_KEY` | Your key from Garmin Connect → Settings → Personal API Key. It expires (30 days to 1 year); Garmin emails you before it does |
+| `GARMIN_OWNER_EMAIL` | The app account that sees the dashboard. Defaults to the first `ADMIN_EMAILS` address |
+
+The app exchanges the key for a 24-hour token (Garmin's official `garmin-connect-personal-api-python` client), backfills 60 days on the first visit, and then re-syncs at most every 3 hours (or with **Refresh from Garmin**).
+
+**The readiness score is the app's own estimate** (`app/readiness.py`), because the Personal API doesn't include Garmin's Training Readiness, recovery time or training status. Weights: HRV 30 %, sleep 25 %, resting heart rate 15 %, Body Battery 15 %, training load 15 % (7-day vs 28-day load). Each part shows how it was scored.
+
 ## Not done yet (v2)
 
 - **Running.** It's switched off with `ENABLED_SPORTS` in `app/workout.py`. The running format, the `.zwo`/`.fit` running exports and their tests are still in the code. Running workouts created earlier stay in the database but aren't listed. To bring running back, add it to `ENABLED_SPORTS`, restore the threshold-pace setting and the running parts of the prompt, and add running examples to the UI.
