@@ -21,6 +21,8 @@ services:
         value: "3.12.7"
       - key: APP_MODE
         value: hosted
+      - key: CANONICAL_HOST
+        value: vibegrind.app      # other addresses (onrender.com, www) redirect here
       - key: WORKOUT_DB
         value: /var/data/app.db
       - key: CLAUDE_MODEL

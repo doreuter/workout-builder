@@ -718,3 +718,24 @@ def test_restore_into_a_fresh_server(client, monkeypatch, tmp_path):
     # A second restore is blocked: the server has data now.
     again = client.post("/api/admin/restore", files={"file": ("b.sqlite3", data, "application/octet-stream")})
     assert again.status_code == 400
+
+
+# --- one official address -------------------------------------------------------------------
+
+def test_secondary_addresses_redirect_to_the_canonical_host(client, monkeypatch):
+    monkeypatch.setenv("CANONICAL_HOST", "vibegrind.app")
+    r = client.get("/app?x=1", headers={"host": "vibegrind.onrender.com"}, follow_redirects=False)
+    assert r.status_code == 301 and r.headers["location"] == "https://vibegrind.app/app?x=1"
+    r = client.get("/privacy", headers={"host": "www.vibegrind.app"}, follow_redirects=False)
+    assert r.status_code == 301 and r.headers["location"] == "https://vibegrind.app/privacy"
+    r = client.post("/api/login", json={}, headers={"host": "vibegrind.onrender.com"}, follow_redirects=False)
+    assert r.status_code == 308  # keeps POST and its body
+    # Served normally: the canonical host, Render's health check, and unknown/internal hosts.
+    assert client.get("/healthz", headers={"host": "vibegrind.onrender.com"}).status_code == 200
+    assert client.get("/", headers={"host": "vibegrind.app"}, follow_redirects=False).status_code == 200
+    assert client.get("/", headers={"host": "10.0.0.5:10000"}, follow_redirects=False).status_code == 200
+
+
+def test_no_redirect_without_canonical_host(client, monkeypatch):
+    monkeypatch.delenv("CANONICAL_HOST", raising=False)
+    assert client.get("/", headers={"host": "vibegrind.onrender.com"}, follow_redirects=False).status_code == 200

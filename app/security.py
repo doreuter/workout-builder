@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from collections import defaultdict, deque
@@ -9,7 +10,7 @@ from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, RedirectResponse
 
 _hits: dict[tuple[str, str], deque] = defaultdict(deque)
 _lock = threading.Lock()
@@ -46,6 +47,23 @@ SECURITY_HEADERS = {
 }
 
 
+def canonical_redirect(request: Request) -> str | None:
+    """Where to send a request that arrived on a secondary address, or None to serve it here.
+
+    With CANONICAL_HOST=vibegrind.app, visits to vibegrind.onrender.com and www.vibegrind.app go to
+    https://vibegrind.app with the same path. Any other host (e.g. Render's internal health checks or
+    localhost) is served normally, and so is /healthz.
+    """
+    canonical = (os.environ.get("CANONICAL_HOST") or "").strip().lower()
+    host = (request.headers.get("host") or "").split(":")[0].lower()
+    if not canonical or host == canonical or request.url.path == "/healthz":
+        return None
+    if host == f"www.{canonical}" or host.endswith(".onrender.com"):
+        query = f"?{request.url.query}" if request.url.query else ""
+        return f"https://{canonical}{request.url.path}{query}"
+    return None
+
+
 class SecurityMiddleware(BaseHTTPMiddleware):
     """Adds security headers, and rejects state-changing requests sent from other websites.
 
@@ -54,6 +72,10 @@ class SecurityMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next):
+        target = canonical_redirect(request)
+        if target:
+            # 301 for normal page loads; 308 keeps the method and body for API calls.
+            return RedirectResponse(target, status_code=301 if request.method in ("GET", "HEAD") else 308)
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             origin = request.headers.get("origin")
             if origin and urlsplit(origin).netloc != request.headers.get("host"):
