@@ -79,10 +79,14 @@ section.block h2 { font-size: 1.7rem; letter-spacing: -.01em; margin: 0 0 1.4rem
 .card p { margin: 0; color: var(--muted); font-size: .95rem; }
 .step-n { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 700; font-size: .85rem; }
 .card code { font-size: .85em; background: var(--bg); padding: .05rem .3rem; border-radius: 4px; }
-.privacy-band { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 28px; display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
-.privacy-band ul { margin: 0; padding-left: 1.2rem; color: var(--muted); }
-.privacy-band li { margin-bottom: .4rem; }
-.privacy-band h2 { margin-bottom: .6rem; }
+.howto { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.howto h3 { display: flex; align-items: center; gap: .5rem; font-size: 1.15rem; margin-bottom: .6rem; }
+.file-tag { font: 600 .75rem/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent-ink); background: var(--accent-soft); padding: .3rem .45rem; border-radius: 6px; }
+.howto ol { margin: 0; padding-left: 1.25rem; color: var(--text); font-size: .95rem; }
+.howto ol > li { margin-bottom: .55rem; padding-left: .2rem; }
+.howto ul { margin: .35rem 0 .35rem; padding-left: 1.1rem; }
+.howto .tip { margin-top: .9rem; padding: .7rem .85rem; background: var(--bg); border-radius: 10px; font-size: .88rem; color: var(--muted); }
+.howto .tip strong { color: var(--text); }
 
 /* legal pages */
 .legal { max-width: 760px; padding: 24px 0 0; }
@@ -99,5 +103,5 @@ mark.ph { background: var(--placeholder); color: inherit; padding: 0 .2rem; bord
 
 @media (max-width: 860px) {
   .hero { grid-template-columns: 1fr; gap: 32px; padding-top: 24px; }
-  .steps, .features, .privacy-band { grid-template-columns: 1fr; }
+  .steps, .features, .howto { grid-template-columns: 1fr; }
 }
