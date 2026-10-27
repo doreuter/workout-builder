@@ -239,6 +239,9 @@ label { display: grid; gap: .3rem; font-size: .9rem; }
 .invite-list li { display: flex; justify-content: space-between; gap: .75rem; font-size: .85rem; }
 .invite-list code { font-size: .9rem; font-weight: 600; letter-spacing: .03em; }
 .invite-list .used code { text-decoration: line-through; color: var(--muted); font-weight: 400; }
+#restore-box { display: grid; gap: .6rem; margin-top: 1rem; }
+#restore-box[hidden] { display: none; }
+.restore-title { margin-top: .5rem; }
 
 /* tabs */
 .tabs { display: flex; gap: .25rem; margin-left: 1rem; }

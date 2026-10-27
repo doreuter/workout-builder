@@ -180,6 +180,19 @@
         </div>
         <ul id="invite-list" class="invite-list"></ul>
       </section>
+      <section id="admin-backup" class="admin" hidden>
+        <h3>Backup</h3>
+        <p class="muted small">A copy of the whole database: all accounts, workouts and Garmin data. Keep it private and delete it when you no longer need it.</p>
+        <a class="btn" href="/api/admin/backup" download>Download backup</a>
+        <div id="restore-box" hidden>
+          <h3 class="restore-title">Restore from backup</h3>
+          <p class="muted small">Replaces this server's database with the backup. Only possible while this server has no data of its own. You'll need to sign in again afterwards.</p>
+          <input id="restore-file" type="file" accept=".sqlite3,.db">
+          <label>Type RESTORE to confirm <input id="restore-confirm" autocomplete="off"></label>
+          <button type="button" id="restore-btn">Restore</button>
+          <p id="restore-msg" class="small" hidden></p>
+        </div>
+      </section>
     </form>
   </dialog>
 

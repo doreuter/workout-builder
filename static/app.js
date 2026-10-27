@@ -826,7 +826,11 @@ $("#settings-btn").addEventListener("click", () => {
   $("#garmin-status-box").hidden = !state.user.garmin_status;
   $("#garmin-status").textContent = state.user.garmin_status || "";
   $("#admin-invites").hidden = !state.user.is_admin;
-  if (state.user.is_admin) loadInvites();
+  $("#admin-backup").hidden = !state.user.is_admin;
+  if (state.user.is_admin) {
+    loadInvites();
+    api("/api/admin/restore").then((r) => { $("#restore-box").hidden = !r.allowed; }).catch(() => {});
+  }
   $("#settings").showModal();
 });
 
@@ -843,6 +847,31 @@ async function loadInvites() {
     list.append(li);
   }
 }
+
+$("#restore-btn").addEventListener("click", async () => {
+  const msg = $("#restore-msg");
+  const file = $("#restore-file").files[0];
+  msg.className = "small error";
+  msg.hidden = false;
+  if (!file) return (msg.textContent = "Choose the backup file first.");
+  if ($("#restore-confirm").value.trim() !== "RESTORE") return (msg.textContent = "Type RESTORE to confirm.");
+  const btn = $("#restore-btn");
+  btn.disabled = true;
+  msg.className = "small muted";
+  msg.textContent = "Restoring…";
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    const r = await api("/api/admin/restore", { method: "POST", form });
+    msg.className = "small success";
+    msg.textContent = `Restored ${r.users} accounts and ${r.workouts} workouts. Sign in again with your old account.`;
+    setTimeout(() => location.reload(), 2500);
+  } catch (err) {
+    msg.className = "small error";
+    msg.textContent = err.message;
+    btn.disabled = false;
+  }
+});
 
 $("#invite-create").addEventListener("click", async () => {
   try {

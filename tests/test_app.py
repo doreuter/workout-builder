@@ -647,3 +647,74 @@ def test_chat_gets_readiness_for_the_garmin_owner_only(client, garmin_owner, mon
     wid = client.post("/api/workouts").json()["id"]
     client.post(f"/api/workouts/{wid}/chat", json={"message": "What should I ride today?"})
     assert "Readiness" not in _last_user_turn(client)[0]["text"]
+
+
+# --- backup and restore -------------------------------------------------------------------
+
+from app import backup  # noqa: E402
+
+SQLITE_HEADER = b"SQLite format 3\x00"
+
+
+def _as(client, email, monkeypatch=None):
+    creds = {"email": email, "password": "longenough"}
+    if client.post("/api/register", json=creds).status_code != 200:
+        client.post("/api/login", json=creds)
+
+
+def test_backup_is_admin_only_and_a_real_database(client, monkeypatch, tmp_path):
+    monkeypatch.setenv("ADMIN_EMAILS", "backup-admin@example.com")
+    _as(client, "plain@example.com")
+    assert client.get("/api/admin/backup").status_code == 403
+    client.post("/api/logout")
+    _as(client, "backup-admin@example.com")
+    r = client.get("/api/admin/backup")
+    assert r.status_code == 200 and r.content.startswith(SQLITE_HEADER)
+    assert "vibegrind-backup-" in r.headers["content-disposition"]
+    f = tmp_path / "b.sqlite3"
+    f.write_bytes(r.content)
+    assert backup.validate_backup(f)["users"] >= 2
+
+
+def test_restore_guards(client, monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "backup-admin@example.com")
+    _as(client, "backup-admin@example.com")
+    data = client.get("/api/admin/backup").content
+    upload = {"file": ("b.sqlite3", data, "application/octet-stream")}
+
+    off = client.post("/api/admin/restore", files=upload)
+    assert off.status_code == 400 and "switched off" in off.json()["detail"]
+
+    monkeypatch.setenv("ALLOW_RESTORE", "1")
+    full = client.post("/api/admin/restore", files=upload)  # the test database has data
+    assert full.status_code == 400 and "already has data" in full.json()["detail"]
+
+
+def test_restore_into_a_fresh_server(client, monkeypatch, tmp_path):
+    # Take a backup of the (busy) test database first.
+    monkeypatch.setenv("ADMIN_EMAILS", "backup-admin@example.com")
+    _as(client, "backup-admin@example.com")
+    data = client.get("/api/admin/backup").content
+    with backup.sqlite3.connect(f"file:{main.db.DB_PATH}?mode=ro", uri=True) as c:
+        users_before = c.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    client.post("/api/logout")
+
+    # A brand-new server: empty database, only the admin account created to run the restore.
+    monkeypatch.setattr(main.db, "DB_PATH", tmp_path / "fresh.db")
+    main.db.init_db()
+    monkeypatch.setenv("ALLOW_RESTORE", "1")
+    client.post("/api/register", json={"email": "backup-admin@example.com", "password": "fresh-password"})
+    assert client.get("/api/admin/restore").json() == {"allowed": True, "target_empty": True}
+
+    bad = client.post("/api/admin/restore", files={"file": ("x.sqlite3", b"not a database at all", "application/octet-stream")})
+    assert bad.status_code == 400 and "isn't a VibeGrind database" in bad.json()["detail"]
+
+    ok = client.post("/api/admin/restore", files={"file": ("b.sqlite3", data, "application/octet-stream")})
+    assert ok.status_code == 200 and ok.json()["users"] == users_before
+    assert client.get("/api/me").status_code == 401  # signed out after restore
+    # The old account and password work again; the throwaway password doesn't.
+    assert client.post("/api/login", json={"email": "backup-admin@example.com", "password": "fresh-password"}).status_code == 401
+    assert client.post("/api/login", json={"email": "backup-admin@example.com", "password": "longenough"}).status_code == 200
+    # A second restore is blocked: the server has data now.
+    again = client.post("/api/admin/restore", files={"file": ("b.sqlite3", data, "application/octet-stream")})
+    assert again.status_code == 400
