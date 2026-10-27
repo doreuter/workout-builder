@@ -583,3 +583,10 @@ def test_garmin_only_for_owner_and_errors_are_shown(client, garmin_owner, monkey
     client.post("/api/register", json={"email": "notowner@example.com", "password": "longenough"})
     assert client.get("/api/me").json()["garmin"] is False
     assert client.get("/api/readiness").status_code == 404
+
+
+def test_page_and_static_files_are_revalidated(client):
+    assert client.get("/").headers["cache-control"] == "no-cache"
+    r = client.get("/static/app.js")
+    assert r.headers["cache-control"] == "no-cache" and r.headers.get("etag")
+    assert client.get("/healthz").headers.get("cache-control") != "no-cache"

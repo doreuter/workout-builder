@@ -61,6 +61,10 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         for name, value in SECURITY_HEADERS.items():
             response.headers.setdefault(name, value)
+        # Make browsers re-check the page and its files on every load (cheap thanks to ETags),
+        # so a new deploy shows up right away instead of an old cached copy.
+        if request.url.path == "/" or request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
         if request.url.scheme == "https":
             response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
         return response
