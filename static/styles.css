@@ -504,3 +504,13 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 .route-options { display: flex; flex-wrap: wrap; gap: .4rem; margin: .6rem 0 0; }
 .route-opt { padding: .35rem .7rem; font-size: .82rem; border: 1px solid var(--border); border-radius: 999px; background: transparent; cursor: pointer; }
 .route-opt.selected { border-color: var(--accent); color: var(--text); background: var(--surface-2, rgba(127,127,127,.12)); }
+
+/* Simplified route panel layout. */
+.route-controls { align-items: center; }
+.route-start { flex: 1 1 12rem; min-width: 0; }
+.route-km { width: 4.5rem; flex: none; }
+#route-locate { flex: none; font-size: 1.1rem; line-height: 1; padding: .35rem .55rem; border: 1px solid var(--border); border-radius: 8px; background: transparent; cursor: pointer; }
+.route-detail { margin: .6rem 0 0; padding: .6rem .8rem; border-left: 3px solid var(--accent); background: var(--surface-2, rgba(127,127,127,.08)); border-radius: 0 6px 6px 0; }
+.route-summary { margin: 0 0 .5rem; color: var(--text); font-size: .9rem; }
+.route-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+.route-foot { margin: .4rem 0 0; }

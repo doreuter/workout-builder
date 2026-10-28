@@ -125,7 +125,8 @@ def profile(feature: dict) -> dict:
         "distance_m": round(dist[-1]),
         "ascent_m": round(ascent),
         "climbs": _climbs(dist, ele),
-        "path": [[round(lat, 5), round(lon, 5)] for lat, lon in pts],
+        # [lat, lon, elevation] — Leaflet uses the first two; the GPX download uses all three.
+        "path": [[round(lat, 5), round(lon, 5), round(e)] for (lat, lon), e in zip(pts, ele)],
     }
 
 

@@ -1375,7 +1375,7 @@ function renderRoutePanel(workout) {
   const panel = $("#route-suggest");
   panel.hidden = !(state.routesAvailable && workout.sport === "cycling");
   if (panel.hidden) return;
-  $("#route-result").hidden = true;
+  $("#route-detail").hidden = true;
   $("#route-error").hidden = true;
   $("#route-options").hidden = true;
   const saved = routeStartSaved();
@@ -1421,20 +1421,21 @@ $("#route-suggest").addEventListener("toggle", (e) => { if (e.target.open) initR
 
 $("#route-locate").addEventListener("click", () => {
   if (!navigator.geolocation) return;
-  $("#route-locate").textContent = "Locating…";
+  const btn = $("#route-locate");
+  btn.disabled = true;
   navigator.geolocation.getCurrentPosition(
     (pos) => {
       setRouteStart(pos.coords.latitude, pos.coords.longitude);
       if (state.routeMap) state.routeMap.setView([pos.coords.latitude, pos.coords.longitude], 12);
-      $("#route-locate").textContent = "Use my location";
+      btn.disabled = false;
     },
-    () => { $("#route-locate").textContent = "Use my location"; showRouteError("Couldn't get your location. Click the map or type coordinates instead."); },
+    () => { btn.disabled = false; showRouteError("Couldn't get your location — tap the map or type coordinates instead."); },
   );
 });
 
 function showRouteError(msg) {
   $("#route-options").hidden = true;
-  $("#route-result").hidden = true;
+  $("#route-detail").hidden = true;
   const e = $("#route-error");
   e.textContent = msg;
   e.hidden = false;
@@ -1443,9 +1444,9 @@ function showRouteError(msg) {
 $("#route-go").addEventListener("click", async () => {
   const start = parseStart($("#route-start").value);
   $("#route-error").hidden = true;
-  $("#route-result").hidden = true;
-  if (!start) return showRouteError("Set a start point: click the map, use your location, or type \"lat, lon\".");
+  $("#route-detail").hidden = true;
   $("#route-options").hidden = true;
+  if (!start) return showRouteError("Set a start: tap the map, use your location, or type \"lat, lon\".");
   const kmField = $("#route-km").value;
   const body = { lat: start.lat, lon: start.lon };
   if (kmField) body.distance_km = Number(kmField);
@@ -1457,18 +1458,18 @@ $("#route-go").addEventListener("click", async () => {
   } catch (err) {
     showRouteError(err.message);
   } finally {
-    btn.disabled = false; btn.textContent = "Suggest a route";
+    btn.disabled = false; btn.textContent = "Suggest";
   }
 });
 
 function renderOptions(options) {
   const box = $("#route-options");
   box.replaceChildren();
-  if (!options.length) { box.hidden = true; return; }
-  // ORS hands back only loops of a certain size near some places, so there may be just one option.
+  if (!options.length) { showRouteError("No route came back for that start — try another spot."); return; }
+  // Only show the picker when there's a real choice (ORS often yields just one loop size near a start).
   if (options.length > 1) {
     for (const [i, o] of options.entries()) {
-      const b = el("button", { type: "button", class: "route-opt" }, `${(o.distance_m / 1000).toFixed(0)} km · ${o.ascent_m} m`);
+      const b = el("button", { type: "button", class: "route-opt" }, `${(o.distance_m / 1000).toFixed(0)} km`);
       b.addEventListener("click", () => selectOption(options, i));
       box.append(b);
     }
@@ -1480,9 +1481,26 @@ function renderOptions(options) {
 }
 
 function selectOption(options, i) {
-  const o = options[i];
   $("#route-options").querySelectorAll(".route-opt").forEach((b, j) => b.classList.toggle("selected", j === i));
-  drawRoute(o);
+  drawRoute(options[i]);
+}
+
+function routeLine(o) {
+  const km = (o.distance_m / 1000).toFixed(o.distance_m < 10000 ? 1 : 0);
+  let s = `${km} km · ${o.ascent_m} m up`;
+  if (o.climbs?.length) {
+    const c = o.climbs.reduce((a, b) => (b.gain_m > a.gain_m ? b : a));
+    s += ` · ${(c.length_m / 1000).toFixed(1)} km climb @ ${c.grade}%`;
+  }
+  return s;
+}
+
+function routeGpx(o, name) {
+  const pts = o.path.map((p) =>
+    `<trkpt lat="${p[0]}" lon="${p[1]}">${p[2] != null ? `<ele>${p[2]}</ele>` : ""}</trkpt>`).join("");
+  return `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<gpx version="1.1" creator="VibeGrind" xmlns="http://www.topografix.com/GPX/1/1">` +
+    `<trk><name>${name}</name><trkseg>${pts}</trkseg></trk></gpx>`;
 }
 
 function drawRoute(r) {
@@ -1496,14 +1514,13 @@ function drawRoute(r) {
       .bindTooltip("Start / finish", { permanent: true, direction: "top", offset: [0, -6] });
     state.routeMap.fitBounds(state.routeLine.getBounds(), { padding: [30, 30] });
   }
-  const res = $("#route-result");
-  const link = `https://www.openstreetmap.org/?mlat=${r.path?.[0]?.[0]}&mlon=${r.path?.[0]?.[1]}#map=14/${r.path?.[0]?.[0]}/${r.path?.[0]?.[1]}`;
-  res.replaceChildren(
-    el("strong", {}, `${(r.distance_m / 1000).toFixed(1)} km · ${r.ascent_m} m up`),
-    document.createTextNode(" — " + r.summary + " "),
-    el("a", { href: link, target: "_blank", rel: "noopener" }, "open the start in a map"),
-  );
-  res.hidden = false;
+  $("#route-summary").textContent = routeLine(r);
+  const name = (state.view.workout?.name || "route").replace(/[^\w-]+/g, "_").slice(0, 60) || "route";
+  const dl = $("#route-download");
+  dl.href = "data:application/gpx+xml;charset=utf-8," + encodeURIComponent(routeGpx(r, name));
+  dl.download = `${name}-route.gpx`;
+  $("#route-openmap").href = `https://www.openstreetmap.org/?mlat=${r.path[0][0]}&mlon=${r.path[0][1]}#map=14/${r.path[0][0]}/${r.path[0][1]}`;
+  $("#route-detail").hidden = false;
 }
 
 // --- settings --------------------------------------------------------------------------

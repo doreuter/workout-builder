@@ -210,18 +210,23 @@
           <p id="send-status" class="success small" hidden></p>
           <details class="route-suggest" id="route-suggest" hidden>
             <summary>Find a route outside</summary>
-            <p class="muted small">Pick a start point and I'll suggest a loop that fits this ride. Always check it's open, legal and safe for you before you go.</p>
             <div class="route-controls">
-              <button type="button" class="btn" id="route-locate">Use my location</button>
-              <label class="route-field">Start <input id="route-start" placeholder="click the map, or lat, lon" inputmode="decimal"></label>
-              <label class="route-field">Distance <input id="route-km" type="number" min="5" max="120" placeholder="auto"> km</label>
-              <button type="button" class="primary" id="route-go">Suggest a route</button>
+              <input id="route-start" class="route-start" placeholder="Start: tap the map or type lat, lon" inputmode="decimal">
+              <button type="button" class="icon-btn" id="route-locate" title="Use my location" aria-label="Use my location">📍</button>
+              <input id="route-km" class="route-km" type="number" min="5" max="120" placeholder="km">
+              <button type="button" class="primary" id="route-go">Suggest</button>
             </div>
             <div id="route-map" class="route-map"></div>
             <div id="route-options" class="route-options" hidden></div>
-            <p id="route-result" class="route-result" hidden></p>
+            <div id="route-detail" class="route-detail" hidden>
+              <p id="route-summary" class="route-summary"></p>
+              <div class="route-actions">
+                <a id="route-download" class="btn" download>Download .gpx</a>
+                <a id="route-openmap" class="btn" target="_blank" rel="noopener">Open in map</a>
+              </div>
+            </div>
             <p id="route-error" class="error small" hidden></p>
-            <p class="muted tiny route-attrib">Routing &amp; elevation © <a href="https://openrouteservice.org/" target="_blank" rel="noopener">OpenRouteService</a> · map © <a href="https://www.thunderforest.com/" target="_blank" rel="noopener">Thunderforest</a> · data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors</p>
+            <p class="muted tiny route-foot">Check it's open, legal and safe before you go. Routing © <a href="https://openrouteservice.org/" target="_blank" rel="noopener">OpenRouteService</a>, map © <a href="https://www.thunderforest.com/" target="_blank" rel="noopener">Thunderforest</a>, data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>.</p>
           </details>
           <details class="steps">
             <summary>Steps</summary>
