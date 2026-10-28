@@ -1460,8 +1460,13 @@ $("#route-go").addEventListener("click", async () => {
 function drawRoute(r) {
   if (state.routeMap && r.path?.length) {
     if (state.routeLine) state.routeLine.remove();
+    if (state.routeEnd) state.routeEnd.remove();
     state.routeLine = L.polyline(r.path, { color: "#e8622c", weight: 4 }).addTo(state.routeMap);
-    state.routeMap.fitBounds(state.routeLine.getBounds(), { padding: [20, 20] });
+    // The loop starts and finishes at the same point; mark it.
+    state.routeEnd = L.circleMarker(r.path[0], { radius: 8, color: "#fff", weight: 2, fillColor: "#e8622c", fillOpacity: 1 })
+      .addTo(state.routeMap)
+      .bindTooltip("Start / finish", { permanent: true, direction: "top", offset: [0, -6] });
+    state.routeMap.fitBounds(state.routeLine.getBounds(), { padding: [30, 30] });
   }
   const res = $("#route-result");
   const link = `https://www.openstreetmap.org/?mlat=${r.path?.[0]?.[0]}&mlon=${r.path?.[0]?.[1]}#map=14/${r.path?.[0]?.[0]}/${r.path?.[0]?.[1]}`;

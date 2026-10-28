@@ -21,6 +21,7 @@ PROFILE = "cycling-road"
 ASSUMED_KMH = 26.0  # to turn a workout's duration into a rough target distance
 SEEDS = (1, 2, 3)   # a few different loops to choose between
 MIN_KM, MAX_KM = 8, 120
+LENGTH_FACTOR = 0.7  # ORS round-trips overshoot the requested length, so ask for less and score on the real distance
 
 
 class RouteError(RuntimeError):
@@ -47,7 +48,8 @@ def _directions(lat: float, lon: float, length_m: int, seed: int) -> dict:
         "coordinates": [[lon, lat]],
         "elevation": True,
         "instructions": False,
-        "options": {"round_trip": {"length": length_m, "points": 4, "seed": seed}},
+        "options": {"round_trip": {"length": length_m, "points": 4, "seed": seed},
+                    "avoid_features": ["ferries", "steps", "fords"]},
     }
     req = urllib.request.Request(
         f"{ORS_BASE}/v2/directions/{PROFILE}/geojson",
@@ -149,7 +151,7 @@ def target_distance_m(workout: dict, pace: int | None) -> int:
 
 def score(prof: dict, dem: dict, target_m: int) -> float:
     """Higher is a better fit. Distance always matters; terrain depends on the session type."""
-    s = 100.0 - abs(prof["distance_m"] - target_m) / target_m * 40
+    s = 100.0 - min(1.0, abs(prof["distance_m"] - target_m) / target_m) * 60
     climbs, ascent = prof["climbs"], prof["ascent_m"]
     if dem["sustained"]:
         if climbs:
@@ -167,27 +169,40 @@ def score(prof: dict, dem: dict, target_m: int) -> float:
     return round(s, 1)
 
 
+def _terrain_word(ascent_m: float, distance_m: float) -> str:
+    per_km = ascent_m / max(1, distance_m / 1000)
+    if per_km < 6:
+        return "flat"
+    if per_km < 15:
+        return "rolling"
+    if per_km < 25:
+        return "hilly"
+    return "very hilly"
+
+
 def _summary(prof: dict, dem: dict) -> str:
     km = prof["distance_m"] / 1000
     ascent = prof["ascent_m"]
-    if dem["sustained"] and prof["climbs"]:
+    base = f"A {km:.1f} km {_terrain_word(ascent, prof['distance_m'])} loop with {ascent} m of climbing"
+    if dem["has_hard"] and prof["climbs"]:
         c = max(prof["climbs"], key=lambda c: c["gain_m"])
-        return (f"A {km:.1f} km loop with {ascent} m of climbing. Do the hard efforts on the "
-                f"{c['length_m'] / 1000:.1f} km climb at ~{c['grade']}% (about {c['minutes']} min).")
-    if not dem["has_hard"]:
-        return f"A {km:.1f} km rolling loop with {ascent} m of climbing — steady all the way round."
-    return f"A {km:.1f} km loop kept fairly flat ({ascent} m climbing), so the reps aren't broken by hills."
+        return (f"{base}. Do the hard efforts on the {c['length_m'] / 1000:.1f} km climb at ~{c['grade']}% "
+                f"(about {c['minutes']} min).")
+    if dem["has_hard"]:
+        return f"{base}. No single long climb here — put the efforts on the steepest drags, or do them to time."
+    return f"{base} — steady all the way round."
 
 
 def suggest_route(workout: dict, pace: int | None, lat: float, lon: float,
                   distance_km: float | None = None, seeds=SEEDS) -> dict:
     """Pick the best-fitting round-trip loop near (lat, lon) for the workout. Raises RouteError."""
     target_m = round(distance_km * 1000) if distance_km else target_distance_m(workout, pace)
+    requested_m = round(target_m * LENGTH_FACTOR)  # compensate for ORS's overshoot
     dem = demand(workout, pace)
     best, errors = None, []
     for seed in seeds:
         try:
-            geo = _directions(lat, lon, target_m, seed)
+            geo = _directions(lat, lon, requested_m, seed)
             feature = geo["features"][0]
         except (RouteError, KeyError, IndexError) as e:
             errors.append(str(e))

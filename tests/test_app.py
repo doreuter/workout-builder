@@ -720,6 +720,21 @@ def test_suggest_route_picks_the_best_loop(monkeypatch):
     assert best["path"] and best["distance_m"] > 0 and "score" in best
 
 
+def test_route_tuning_distance_and_wording(monkeypatch):
+    from app import routes
+    seen = {}
+    def fake(lat, lon, length, seed):
+        seen["length"] = length
+        return HILLY
+    monkeypatch.setattr(routes, "_directions", fake)
+    best = routes.suggest_route(THRESHOLD, 270, 47.05, 8.55, distance_km=40, seeds=(1,))
+    assert seen["length"] < 40000  # asks ORS for less, to offset its overshoot
+    assert "very hilly" in best["summary"] and "climb" in best["summary"]  # ascent-aware, points at a climb
+    # A hard session on a loop with no single climb: efforts go on the drags, not the endurance blurb.
+    flat_txt = routes._summary(routes.profile(FLAT["features"][0]), routes.demand(THRESHOLD, 270))
+    assert "steepest drags" in flat_txt and "steady all the way round" not in flat_txt
+
+
 def test_route_endpoint(client, monkeypatch):
     from app import routes
     client.post("/api/register", json={"email": "loop@example.com", "password": "longenough"})
