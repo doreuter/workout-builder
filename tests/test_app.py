@@ -733,6 +733,15 @@ def test_route_distance_is_steered_toward_target(monkeypatch):
     assert abs(best["distance_m"] - 40000) < abs(reqs[0] * 1.6 - 40000)
 
 
+def test_route_distance_beats_terrain():
+    from app import routes
+    dem = routes.demand(THRESHOLD, 270)  # sustained efforts (would love a climb)
+    on_target = routes.profile(_ors([500] * 501)["features"][0])          # ~50 km, flat, no climb
+    short_hilly = routes.profile(_ors([500 + i * 10 for i in range(151)])["features"][0])  # ~15 km, big climb
+    # A 15 km loop with a lovely climb must NOT win when the rider asked for 50 km.
+    assert routes.score(on_target, dem, 50000) > routes.score(short_hilly, dem, 50000)
+
+
 def test_route_summary_wording():
     from app import routes
     # Ascent-aware wording, and a hard session points at the biggest climb.

@@ -149,22 +149,23 @@ def target_distance_m(workout: dict, pace: int | None) -> int:
 
 
 def score(prof: dict, dem: dict, target_m: int) -> float:
-    """Higher is a better fit. Distance always matters; terrain depends on the session type."""
-    s = 100.0 - min(1.0, abs(prof["distance_m"] - target_m) / target_m) * 60
+    """Higher is a better fit. Distance dominates — the rider asked for a distance, so a loop far from it
+    is no good however nice its terrain — and terrain (±15) only separates loops of similar length."""
+    dev = abs(prof["distance_m"] - target_m) / target_m
+    s = -100.0 * dev  # 0 at target; -15 at 15% off already cancels the best terrain bonus
     climbs, ascent = prof["climbs"], prof["ascent_m"]
     if dem["sustained"]:
         if climbs:
             best = max(climbs, key=lambda c: c["gain_m"])
             want = dem["longest_min"] or 1
-            s += 30 * max(0.0, 1 - abs(best["minutes"] - want) / want)
-            s += min(ascent, 800) / 800 * 10
+            s += 15 * max(0.0, 1 - abs(best["minutes"] - want) / want)
         else:
-            s -= 30  # sustained efforts with nowhere to climb
-    elif not dem["has_hard"]:  # endurance: some rolling is nice, distance dominates
+            s -= 15  # sustained efforts with nowhere to climb
+    elif not dem["has_hard"]:  # endurance: a little rolling is nice
         per_km = ascent / max(1, prof["distance_m"] / 1000)
-        s += 10 - min(abs(per_km - 8), 10)
+        s += 5 - min(abs(per_km - 8), 5)
     else:  # short, sharp reps: prefer flat so junctions and gradient don't break them
-        s -= min(ascent, 1000) / 1000 * 20
+        s -= min(ascent, 1000) / 1000 * 10
     return round(s, 1)
 
 
@@ -213,7 +214,11 @@ def suggest_route(workout: dict, pace: int | None, lat: float, lon: float,
         if best is None or cand["score"] > best["score"]:
             best = cand
         actual = prof["distance_m"] or requested
-        requested = round(min(MAX_KM * 1000, max(MIN_KM * 1000, requested * target_m / actual)))
+        # Correct toward the target, but keep each request within half-to-1.5× of it so one odd
+        # loop from ORS can't send the next request (and the whole set) wildly off.
+        lo = max(MIN_KM * 1000, target_m * 0.5)
+        hi = min(MAX_KM * 1000, target_m * 1.5)
+        requested = round(min(hi, max(lo, requested * target_m / actual)))
     if best is None:
         raise RouteError(errors[0] if errors else "No route could be generated near there.")
     best["summary"] = _summary(best, dem)
