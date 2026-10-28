@@ -182,7 +182,6 @@ def score_day(row, history, loads: dict[str, float], rec: dict | None = None) ->
         "day": row["day"],
         "score": total,
         "capped": capped,
-        "recovery_hours": rec["hours_left"] if rec else None,
         "verdict": {"key": verdict[1], "title": verdict[2], "advice": verdict[3]} if verdict else None,
         "components": [
             {"key": k, "weight": WEIGHTS[k], **(v or {"score": None, "note": "no data"})} for k, v in parts.items()
@@ -219,6 +218,26 @@ def recovery(activities, now: datetime) -> dict | None:
         "activity": {"name": a["name"], "type_key": a["type_key"], "day": a["day"],
                      "hours": round(a["recovery_min"] / 60, 1)},
     }
+
+
+def recovery_windows(activities, now: datetime, days: int = 14) -> list[dict]:
+    """Each activity's recovery window (end of activity until its recovery time is up) for the timeline.
+    The value in a file is the device's total, so an easy session during a longer window just repeats
+    the time already left; windows that don't extend recovery by more than an hour are left out."""
+    since = now - timedelta(days=days)
+    windows, latest_end = [], None
+    rows = [a for a in activities if a["recovery_min"] and a["recovery_from"]]
+    for a in sorted(rows, key=lambda a: a["recovery_from"]):
+        start = datetime.fromisoformat(a["recovery_from"])
+        end = start + timedelta(minutes=a["recovery_min"])
+        if start > now or end < since:
+            continue
+        if latest_end and start < latest_end and end <= latest_end + timedelta(hours=1):
+            continue
+        latest_end = max(latest_end or end, end)
+        windows.append({"name": a["name"], "type_key": a["type_key"], "day": a["day"], "start": start.isoformat(),
+                        "end": end.isoformat(), "hours": round(a["recovery_min"] / 60, 1)})
+    return windows
 
 
 def _recovery_at(activities, moment: datetime) -> dict | None:
@@ -315,11 +334,11 @@ def build(days, activities, today: date, now: datetime | None = None) -> dict:
             "sleep_score": r["sleep_score"] if r else None,
             "body_battery": r["bb_max"] if r else None,
             "load": round(loads.get(d, 0.0)),
-            "recovery_hours": s["recovery_hours"] if s else None,
         })
     return {
         "today": latest,
         "is_today": bool(latest and latest["day"] == today.isoformat()),
         "recovery": recovery(activities, now),
+        "recovery_windows": recovery_windows(activities, now),
         "trend": trend,
     }

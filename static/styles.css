@@ -306,6 +306,17 @@ button.danger { background: var(--error); border-color: var(--error); color: #ff
 .r-chart .hover-line { stroke: var(--muted); stroke-width: 1; }
 .r-chart .hover-dot { fill: var(--series); stroke: var(--surface); stroke-width: 2; }
 .r-chart .tooltip { transform: translate(-50%, -115%); }
+.rt-bar { cursor: default; }
+.rt-ride { fill: var(--z2); background: var(--z2); }
+.rt-run { fill: var(--z5); background: var(--z5); }
+.rt-other { fill: var(--z1); background: var(--z1); }
+.rt-label { font-size: 11px; fill: #111522; font-family: var(--mono); pointer-events: none; }
+.rt-now { stroke: var(--ice); stroke-width: 1.5; stroke-dasharray: 3 3; }
+.rt-now-label { font-size: 11px; fill: var(--ice); }
+.rt-legend { margin-top: .4rem; display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .9rem; }
+.rt-legend span { display: inline-flex; align-items: center; gap: .3rem; }
+.rt-key { display: inline-block; width: .7rem; height: .7rem; border-radius: 3px; }
+@media (min-width: 901px) { .r-wide { grid-column: span 2; } }
 
 .r-acts-wrap { overflow-x: auto; }
 .r-acts { width: 100%; border-collapse: collapse; font-size: .88rem; font-variant-numeric: tabular-nums; }

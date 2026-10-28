@@ -832,7 +832,7 @@ function renderReadiness(d) {
     : r < 0.8 ? "Lighter than usual: you're fresh, but fitness may slip if it lasts."
     : "Load is in a sustainable range.";
 
-  renderTrends(d.trend, d.recovery);
+  renderTrends(d.trend, d.recovery, d.recovery_windows);
   renderActivities(d.activities);
 }
 
@@ -844,33 +844,100 @@ const TRENDS = [
     format: (h) => `${Math.floor(h)} h ${String(Math.round((h % 1) * 60)).padStart(2, "0")} min` },
   { key: "body_battery", title: "Body Battery (overnight high)", unit: "", kind: "bar", min: 0, max: 100 },
   { key: "load", title: "Daily training load", unit: "", kind: "bar", min: 0 },
-  { key: "recovery_hours", title: "Recovery time (morning)", unit: " h", kind: "bar", min: 0, needs: "recovery",
-    format: (h) => `${Math.round(h)} h`,
-    latest: (rec) => `Now: ${rec.hours_left > 0 ? `${Math.round(rec.hours_left)} h left` : "recovered"} · ${rec.title.toLowerCase()}`
-      + ` (from ${rec.activity.name || "your activity"}, ${fmtDay(rec.activity.day, { day: "numeric", month: "short" })})`,
-    light: (rec) => rec.light },
 ];
 
-function renderTrends(trend, recovery) {
+function renderTrends(trend, recovery, windows) {
   const box = $("#r-trends");
   box.replaceChildren();
-  for (const spec of TRENDS) {
-    if (spec.needs === "recovery" && !recovery) continue;  // only once Garmin's recovery time has been read
-    box.append(trendChart(spec, trend, recovery));
-  }
+  for (const spec of TRENDS) box.append(trendChart(spec, trend));
+  if (recovery) box.append(recoveryTimeline(recovery, windows || []));  // once Garmin's recovery time has been read
 }
 
-function trendChart(spec, trend, recovery) {
+const HOUR = 3600 * 1000;
+
+// Recovery windows of the last 14 days: one bar per activity from its end until its recovery time is up,
+// stacked into as few rows as possible, with a line at "now".
+function recoveryTimeline(rec, windows) {
+  const card = el("article", { class: "card r-chart r-wide" });
+  card.append(el("h3", {}, "Recovery time, last 14 days"));
+  const line = el("p", { class: "r-latest" });
+  line.append(el("span", { class: `r-dot small light-${rec.light}`, "aria-hidden": "true" }),
+    `Now: ${rec.hours_left > 0 ? `${Math.round(rec.hours_left)} h left` : "recovered"} · ${rec.title.toLowerCase()}`);
+  card.append(line);
+
+  const now = Date.now();
+  const day0 = new Date(now - 13 * 24 * HOUR);
+  day0.setHours(0, 0, 0, 0);
+  const t0 = day0.getTime();
+  const t1 = Math.max(now, ...windows.map((w) => Date.parse(w.end))) + 2 * HOUR;
+  const lanes = [];
+  const bars = windows.map((w) => {
+    const s = Math.max(Date.parse(w.start), t0), e = Date.parse(w.end);
+    let lane = lanes.findIndex((end) => end <= s);
+    if (lane < 0) lane = lanes.push(0) - 1;
+    lanes[lane] = e;
+    return { w, s, e, lane };
+  });
+
+  const W = window.innerWidth < 700 ? 340 : 640, laneH = 16, gap = 6, padT = 16, padB = 22;
+  const H = padT + Math.max(1, lanes.length) * (laneH + gap) + padB;
+  const x = (t) => ((t - t0) / (t1 - t0)) * W;
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "Recovery windows of the last 14 days");
+  const add = (tag, attrs, text) => {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    if (text != null) node.textContent = text;
+    svg.append(node);
+    return node;
+  };
+  const every = W < 400 ? 3 : 2;
+  for (let d = new Date(t0), i = 0; d.getTime() <= t1; d.setDate(d.getDate() + 1), i++) {
+    const xd = x(d.getTime());
+    add("line", { x1: xd, x2: xd, y1: padT, y2: H - padB, class: "gridline" });
+    if (i % every === 0) add("text", { x: xd + 2, y: H - 6, class: "axis-label" }, d.toLocaleDateString(undefined, { day: "numeric", month: "short" }));
+  }
+
+  const tip = el("div", { class: "tooltip", hidden: "" });
+  for (const { w, s, e, lane } of bars) {
+    const y = padT + lane * (laneH + gap);
+    const kind = (w.type_key || "").includes("running") ? "run" : /cycling|biking|ride/.test(w.type_key || "") ? "ride" : "other";
+    const bar = add("rect", { x: x(s), y, width: Math.max(3, x(e) - x(s)), height: laneH, rx: 4, class: `rt-bar rt-${kind}` });
+    if (x(e) - x(s) > 34) add("text", { x: x(s) + 5, y: y + 12, class: "rt-label" }, `${Math.round(w.hours)} h`);
+    const until = new Date(e).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" });
+    bar.addEventListener("mouseenter", () => {
+      tip.textContent = `${w.name || w.type_key} · ${fmtDay(w.day)} · ${Math.round(w.hours)} h, until ${until}`;
+      const rect = bar.getBoundingClientRect(), cardRect = card.getBoundingClientRect();
+      tip.style.left = `${rect.left - cardRect.left + rect.width / 2}px`;
+      tip.style.top = `${rect.top - cardRect.top}px`;
+      tip.hidden = false;
+    });
+    bar.addEventListener("mouseleave", () => { tip.hidden = true; });
+  }
+  add("line", { x1: x(now), x2: x(now), y1: padT - 3, y2: H - padB, class: "rt-now" });
+  add("text", { x: x(now), y: 10, "text-anchor": "middle", class: "rt-now-label" }, "now");
+
+  card.append(svg, tip);
+  const legend = el("p", { class: "r-latest rt-legend" });
+  for (const [kind, label] of [["ride", "ride"], ["run", "run"], ["other", "other"]]) {
+    const item = el("span");
+    item.append(el("i", { class: `rt-key rt-${kind}` }), label);
+    legend.append(item);
+  }
+  legend.append(el("span", {}, "Bars run from the end of each activity until its recovery time is up."));
+  card.append(legend);
+  return card;
+}
+
+function trendChart(spec, trend) {
   const card = el("article", { class: "card r-chart" });
   const values = trend.map((p) => p[spec.key]);
   const show = (v) => (spec.format ? spec.format(v) : `${v}${spec.unit}`);
   const latest = [...trend].reverse().find((p) => p[spec.key] != null);
   card.append(el("h3", {}, spec.title));
-  if (spec.latest) {
-    const line = el("p", { class: "r-latest" });
-    line.append(el("span", { class: `r-dot small light-${spec.light(recovery)}`, "aria-hidden": "true" }), spec.latest(recovery));
-    card.append(line);
-  } else card.append(el("p", { class: "r-latest" }, latest
+  card.append(el("p", { class: "r-latest" }, latest
     ? `Latest ${fmtDay(latest.day, { day: "numeric", month: "short" })}: ${show(latest[spec.key])}`
       + (spec.band && latest[spec.band[0]] ? ` · usual ${latest[spec.band[0]]}–${latest[spec.band[1]]}${spec.unit}` : "")
     : "No data yet"));

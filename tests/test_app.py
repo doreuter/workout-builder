@@ -670,6 +670,16 @@ def test_recovery_time_counts_in_the_readiness_score():
     assert trend["2026-10-20"] is not None
 
 
+def test_recovery_windows_for_the_timeline():
+    run = _act("Run", "2026-10-22", 3170, _dt(2026, 10, 22, 17, 18, tzinfo=_tz.utc))
+    yoga = _act("Yoga", "2026-10-23", 1650, _dt(2026, 10, 23, 19, 30, tzinfo=_tz.utc))  # repeats what's left
+    ride = _act("Ride", "2026-10-24", 1695, _dt(2026, 10, 24, 17, 39, tzinfo=_tz.utc))
+    old = _act("Ride", "2026-10-01", 1500, _dt(2026, 10, 1, 17, 0, tzinfo=_tz.utc))
+    windows = readiness.recovery_windows([ride, yoga, old, run], _dt(2026, 10, 28, 8, tzinfo=_tz.utc))
+    assert [(w["name"], w["hours"]) for w in windows] == [("Run", 52.8), ("Ride", 28.2)]
+    assert windows[0]["end"] == "2026-10-24T22:08:00+00:00"
+
+
 def test_recovery_time_on_dashboard_and_in_chat(client, garmin_owner, monkeypatch):
     today = _date.today()
     fake = FakeGarmin(today)
@@ -683,8 +693,8 @@ def test_recovery_time_on_dashboard_and_in_chat(client, garmin_owner, monkeypatc
     rec = data["recovery"]
     assert rec["light"] == "yellow" and 33.9 <= rec["hours_left"] <= 34 and rec["activity"]["hours"] == 40
     assert next(a for a in data["activities"] if a["recovery_min"])["recovery_min"] == 2400
-    # Each recent file is downloaded once (only the last few days), not again on the next sync.
-    assert 1 <= fake.downloads <= 3
+    # Each file of the last 14 days is downloaded once (every other day here), not again on the next sync.
+    assert 7 <= fake.downloads <= 8
     n = fake.downloads
     client.get("/api/readiness?refresh=1")
     assert fake.downloads == n
