@@ -195,16 +195,23 @@
           </div>
           <div class="legend" id="legend"></div>
           <div class="exports">
-            <button class="primary" id="send-zwift" hidden>Send to Zwift</button>
-            <a class="btn" id="export-zwo">Download for Zwift (.zwo)</a>
-            <a class="btn" id="export-fit">Download for Garmin (.fit)</a>
+            <div class="export-row" id="send-zwift-row" hidden>
+              <button class="primary" id="send-zwift">Send to Zwift</button>
+              <span class="export-note" id="send-zwift-note"></span>
+            </div>
+            <div class="export-row">
+              <a class="btn" id="export-zwo">Download for Zwift (.zwo)</a>
+              <span class="export-note">Drop in your Zwift workouts folder, restart Zwift</span>
+            </div>
+            <div class="export-row">
+              <a class="btn" id="export-fit">Download for Garmin (.fit)</a>
+              <span class="export-note">Copy to GARMIN/NewFiles over USB</span>
+            </div>
           </div>
           <div class="plan-date">
             <label>On the calendar <input type="date" id="w-plan-date"></label>
             <button type="button" class="link small" id="w-plan-clear" hidden>Take off the calendar</button>
           </div>
-          <p id="zwift-folder-line" class="muted small hint" hidden></p>
-          <p id="export-hint" class="muted small hint" hidden></p>
           <p id="export-error" class="error small" hidden></p>
           <p id="send-status" class="success small" hidden></p>
           <details class="route-suggest" id="route-suggest" hidden>

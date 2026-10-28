@@ -504,3 +504,9 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 .route-summary { margin: 0 0 .5rem; color: var(--text); font-size: .9rem; }
 .route-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
 .route-foot { margin: .4rem 0 0; }
+
+/* Export rows: button with a short note beside it. */
+.exports { flex-direction: column; align-items: stretch; }
+.export-row { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; }
+.export-row .btn, .export-row button { flex: 0 0 auto; }
+.export-note { color: var(--muted); font-size: .8rem; }

@@ -455,7 +455,6 @@ function renderWorkout() {
   $("#workout-view").hidden = !workout;
   $("#export-error").hidden = true;
   $("#send-status").hidden = true;
-  $("#send-zwift").hidden = !(state.zwiftAvailable || state.browserZwift);
   renderZwiftHelp();
   if (!workout) return;
   $("#w-plan-date").value = state.view.planned_date || "";
@@ -599,40 +598,13 @@ function zwiftPath() {
   return state.device === "windows" ? "Documents\\Zwift\\Workouts\\" : "Documents/Zwift/Workouts/";
 }
 
-// The line under the export buttons: where "Send to Zwift" saves, and how to get files onto devices.
+// Short note beside the "Send to Zwift" button (shown only when we can save to the folder directly).
 function renderZwiftHelp() {
-  const line = $("#zwift-folder-line");
-  line.hidden = !state.browserZwift;
-  if (state.browserZwift) {
-    line.replaceChildren();
-    if (ZwiftFolder.folderName) {
-      line.append(`Send to Zwift saves into your Zwift folder `, el("code", {}, ZwiftFolder.folderName), " · ");
-      const change = el("button", { type: "button", class: "link" }, "Change folder");
-      change.addEventListener("click", () => connectZwiftFolder());
-      line.append(change);
-    } else {
-      line.append("First time: Send to Zwift asks you to pick your Zwift folder once: ",
-        el("code", {}, `${zwiftPath()}<the folder with a number>`), ".");
-    }
-  }
-
-  const hint = $("#export-hint");
-  hint.hidden = state.zwiftAvailable;
-  if (state.zwiftAvailable) return;
-  hint.replaceChildren();
-  const garmin = ["phone", "tablet"].includes(state.device)
-    ? "Garmin: on a computer, copy the .fit file to GARMIN/NewFiles on your watch or Edge (USB)."
-    : "Garmin: connect your watch or Edge by USB and copy the .fit file to GARMIN/NewFiles.";
-  if (state.device === "phone" || state.device === "tablet") {
-    hint.append("Zwift: put the .zwo file into the Zwift folder on the computer you use Zwift on; it then syncs to your iPad, Apple TV or phone. ", garmin, " ");
-  } else if (!state.browserZwift) {
-    hint.append("Zwift: move the .zwo file to ", el("code", {}, `${zwiftPath()}<your Zwift ID>`), " and restart Zwift. ", garmin,
-      " Tip: in Chrome or Edge, Send to Zwift saves it there for you. ");
-  } else {
-    hint.append(garmin, " ");
-  }
-  const guide = el("a", { href: "/#ride-it", target: "_blank", rel: "noopener" }, "Step-by-step guide");
-  hint.append(guide);
+  const show = state.zwiftAvailable || state.browserZwift;
+  $("#send-zwift-row").hidden = !show;
+  if (!show) return;
+  $("#send-zwift-note").textContent = state.browserZwift && !ZwiftFolder.folderName
+    ? "Pick your Zwift folder once" : "Saves to your Zwift folder";
 }
 
 async function connectZwiftFolder() {
@@ -675,15 +647,15 @@ $("#send-zwift").addEventListener("click", async () => {
     if (state.browserZwift) {
       const name = await sendToZwiftFromBrowser();
       if (name) {
-        $("#send-status").textContent = `Saved to your Zwift folder as ${name}. Restart Zwift, then find it under Training → Workouts → Custom Workouts.`;
+        $("#send-status").textContent = `Saved as ${name} — restart Zwift to see it.`;
         $("#send-status").hidden = false;
       }
       return;
     }
     const res = await api(`/api/workouts/${state.currentId}/send/zwift`, { method: "POST" });
-    $("#send-status").textContent = (res.replaced
-      ? `Updated ${res.filename} in Zwift (the previous version was backed up).`
-      : `Saved to Zwift as ${res.filename}.`) + " Restart Zwift, then find it under Training → Workouts → Custom Workouts.";
+    $("#send-status").textContent = res.replaced
+      ? `Updated ${res.filename} — restart Zwift to see it.`
+      : `Saved as ${res.filename} — restart Zwift to see it.`;
     $("#send-status").hidden = false;
   } catch (err) {
     $("#export-error").textContent = err.message;
