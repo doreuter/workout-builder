@@ -53,9 +53,10 @@
     <header class="topbar">
       <button class="icon-btn" id="menu-btn" aria-label="Show workouts">☰</button>
       <a class="brand" href="/"><img src="/static/brand/logo.svg" alt="" width="26" height="26"><span>Vibe<span class="grind">Grind</span></span></a>
-      <nav class="tabs" id="tabs" hidden>
+      <nav class="tabs" id="tabs">
         <button class="tab active" data-view="workouts">Workouts</button>
-        <button class="tab" data-view="readiness">Readiness</button>
+        <button class="tab" data-view="plan">Plan</button>
+        <button class="tab" data-view="readiness" id="tab-readiness" hidden>Readiness</button>
       </nav>
       <span class="spacer"></span>
       <span id="user-email" class="muted small hide-sm"></span>
@@ -68,6 +69,35 @@
       <button class="wide import-btn" id="import-btn">Import workout</button>
       <ul id="workout-list" class="workout-list"></ul>
     </aside>
+
+    <section class="plan" id="plan" hidden>
+      <div class="plan-cal">
+        <div class="r-head">
+          <div>
+            <h1>Plan</h1>
+            <p class="muted small" id="p-range"></p>
+          </div>
+          <div class="p-nav">
+            <button type="button" id="p-prev" aria-label="Earlier weeks">‹</button>
+            <button type="button" id="p-today">This week</button>
+            <button type="button" id="p-next" aria-label="Later weeks">›</button>
+          </div>
+        </div>
+        <p class="r-error" id="p-error" role="alert" hidden></p>
+        <div id="p-weeks"></div>
+      </div>
+      <section class="chat card plan-chat">
+        <div class="plan-chat-head">
+          <h2>Plan with Claude</h2>
+          <button type="button" class="link small" id="p-clear">Start over</button>
+        </div>
+        <div id="p-messages" class="messages"></div>
+        <form id="p-form" class="chat-form">
+          <textarea id="p-input" rows="2" placeholder="e.g. Plan next week: 4 rides, long ride on Saturday, Wednesday off" required></textarea>
+          <button type="submit" class="primary" id="p-send">Send</button>
+        </form>
+      </section>
+    </section>
 
     <section class="readiness" id="readiness" hidden>
       <div class="r-head">
@@ -159,6 +189,10 @@
             <a class="btn" id="export-zwo">Download for Zwift (.zwo)</a>
             <a class="btn" id="export-fit">Download for Garmin (.fit)</a>
           </div>
+          <div class="plan-date">
+            <label>On the calendar <input type="date" id="w-plan-date"></label>
+            <button type="button" class="link small" id="w-plan-clear" hidden>Take off the calendar</button>
+          </div>
           <p id="zwift-folder-line" class="muted small hint" hidden></p>
           <p id="export-hint" class="muted small hint" hidden></p>
           <p id="export-error" class="error small" hidden></p>
@@ -216,13 +250,9 @@
         <p class="small" id="garmin-status"></p>
       </section>
       <section id="admin-invites" class="admin" hidden>
-        <h3>Invites</h3>
-        <p class="muted small">Each code lets one person create an account.</p>
-        <div class="invite-new">
-          <input id="invite-note" placeholder="Who is it for? (optional)" maxlength="100">
-          <button type="button" id="invite-create">Create invite</button>
-        </div>
-        <ul id="invite-list" class="invite-list"></ul>
+        <h3>Admin</h3>
+        <p class="muted small">Users, invites, password resets and usage numbers.</p>
+        <a class="btn" href="/admin">Open the admin page</a>
       </section>
       <section id="admin-backup" class="admin" hidden>
         <h3>Backup</h3>

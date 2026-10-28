@@ -69,6 +69,26 @@ Forgotten password: in Render, open the service's **Shell** and run `python scri
 
 The online version can't reach anyone's Zwift folder: people download `.zwo`/`.fit` files and upload `.zwo`/`.fit` files to import. Run the app locally (`APP_MODE=local`) to keep the Zwift folder buttons.
 
+## Admin page
+
+`/admin` (admins only; linked from Settings) shows:
+- **Usage:** users, active users (7 and 30 days), workouts and planned workouts, chat messages, this month's
+  AI cost against the budget, and chat messages per day for the last 30 days.
+- **Invites:** create a code and share a link (`/app#invite=CODE`) that opens the sign-up with the code filled in.
+- **Users:** joined, last active (kept to the hour), workouts, planned workouts, messages and AI cost (30 days).
+  **Get link** makes a single-use password-reset link (valid 24 h) to send yourself; **Email reset** sends it
+  directly once SMTP is set up. A new link replaces any earlier unused one; the old password keeps working until
+  the link is used.
+
+## Calendar
+
+The **Plan** tab shows two weeks (Monday to Sunday) with planned workouts, coloured by the zone each session
+holds for at least five minutes, and weekly time and TSS. Next to it, **Plan with Claude** puts complete
+workouts on dates ("plan next week: 4 rides, long ride Saturday"), replaces or removes them (`plan_workouts`,
+`remove_planned` in `app/llm.py`), using readiness and recovery time for the next two days when Garmin is
+connected. The planning chat keeps its last 6 exchanges; the calendar itself is sent with every message.
+Any workout can also be put on a date, or taken off, from its own view.
+
 ## How it works
 
 ```

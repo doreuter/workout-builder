@@ -1072,3 +1072,135 @@ def test_backup_runs_once_a_day_and_reports_failures(client, offsite_env, monkey
     _as(client, "backup-admin@example.com")
     status = client.get("/api/admin/offsite").json()
     assert status["configured"] is True and "failed" in status["last_error"]
+
+
+# --- admin page -------------------------------------------------------------------------------
+
+def test_admin_sees_users_stats_and_makes_reset_links(client, monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "chief@example.com")
+    for name in ("SMTP_HOST", "MAIL_FROM"):
+        monkeypatch.delenv(name, raising=False)
+    _as(client, "rider-a@example.com")
+    wid = client.post("/api/workouts").json()["id"]
+    client.post(f"/api/workouts/{wid}/chat", json={"message": "4x8 threshold"})
+    assert client.get("/api/admin/users").status_code == 403
+    assert client.get("/api/admin/stats").status_code == 403
+    client.post("/api/logout")
+
+    _as(client, "chief@example.com")
+    data = client.get("/api/admin/users").json()
+    assert data["mail"] is False
+    rider = next(u for u in data["users"] if u["email"] == "rider-a@example.com")
+    assert rider["workouts"] >= 1 and rider["messages_30d"] >= 1 and rider["last_seen_at"] and not rider["is_admin"]
+    assert next(u for u in data["users"] if u["email"] == "chief@example.com")["is_admin"]
+
+    stats = client.get("/api/admin/stats").json()
+    assert stats["users"] >= 2 and stats["active_7d"] >= 2 and stats["messages_30d"] >= 1
+    assert stats["by_day"] and stats["by_day"][-1]["messages"] >= 1 and len(stats["since"]) == 10
+
+    # No email configured: the link comes back to share by hand; asking for an email says why not.
+    r = client.post(f"/api/admin/users/{rider['id']}/reset", json={}).json()
+    assert r["emailed"] is False and "/app#reset=" in r["link"]
+    assert client.post(f"/api/admin/users/{rider['id']}/reset", json={"send_email": True}).status_code == 503
+    assert client.post("/api/admin/users/999999/reset", json={}).status_code == 404
+
+    # The link works once.
+    token = r["link"].split("#reset=")[1]
+    client.post("/api/logout")
+    assert client.post("/api/password-reset/confirm", json={"token": token, "password": "brand-new-pass"}).status_code == 200
+    assert client.post("/api/login", json={"email": "rider-a@example.com", "password": "brand-new-pass"}).status_code == 200
+    assert client.post("/api/password-reset/confirm", json={"token": token, "password": "again-new-pass"}).status_code == 400
+
+
+def test_admin_reset_email_is_sent_when_mail_is_set_up(client, monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "chief@example.com")
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("MAIL_FROM", "VibeGrind <hello@vibegrind.app>")
+    sent = []
+    monkeypatch.setattr(main.mailer, "send", lambda to, subject, text: sent.append((to, subject, text)))
+    _as(client, "rider-b@example.com")
+    client.post("/api/logout")
+    _as(client, "chief@example.com")
+    rider = next(u for u in client.get("/api/admin/users").json()["users"] if u["email"] == "rider-b@example.com")
+    r = client.post(f"/api/admin/users/{rider['id']}/reset", json={"send_email": True}).json()
+    assert r["emailed"] is True and sent[0][0] == "rider-b@example.com" and r["link"] in sent[0][2]
+
+
+def test_admin_page_is_served(client):
+    assert client.get("/admin").status_code == 200 and "admin.js" in client.get("/admin").text
+
+
+# --- calendar ---------------------------------------------------------------------------------
+
+class PlanFake:
+    """Answers the planning chat like Claude: plans what `items` says, then replies in text."""
+
+    def __init__(self, items, remove=None):
+        self.items, self.remove, self.calls = items, remove, []
+        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
+
+    def _create(self, **kwargs):
+        self.calls.append(kwargs)
+        last = kwargs["messages"][-1]["content"]
+        if isinstance(last, list) and last[0]["type"] == "tool_result":
+            return SimpleNamespace(stop_reason="end_turn", content=[Block(type="text", text="Your week is planned.")])
+        if self.remove:
+            return SimpleNamespace(stop_reason="tool_use", content=[
+                Block(type="tool_use", id="tu_r", name="remove_planned", input={"ids": self.remove})])
+        return SimpleNamespace(stop_reason="tool_use", content=[
+            Block(type="tool_use", id="tu_p", name="plan_workouts", input={"items": self.items})])
+
+
+def test_calendar_and_planning_chat(client, monkeypatch):
+    _as(client, "planner@example.com")
+    today = _date.today()
+    d1, d2 = (today + _td(days=1)).isoformat(), (today + _td(days=3)).isoformat()
+    too_far = (today + _td(days=200)).isoformat()
+    fake = PlanFake([{"date": d1, "workout": THRESHOLD}, {"date": d2, "workout": {**THRESHOLD, "name": "Long Z2"}},
+                     {"date": too_far, "workout": THRESHOLD}])
+    monkeypatch.setattr(llm.anthropic, "Anthropic", lambda: fake)
+
+    r = client.post("/api/plan/chat", json={"message": "Plan my week", "today": today.isoformat()}).json()
+    assert r["reply"] == "Your week is planned." and r["changed"] is True
+    sent = fake.calls[-1]["messages"]  # the loop appends to one list: user turn, tool call, tool result, reply
+    context = sent[0]["content"][0]["text"]
+    assert f"Today is {today.isoformat()}" in context and "Planned workouts" in context
+    result = sent[2]["content"][0]
+    assert "Planned:" in result["content"] and "outside the planning window" in result["content"] and not result.get("is_error")
+
+    plan = client.get(f"/api/plan?start={today.isoformat()}&days=14").json()
+    assert [(w["date"], w["name"]) for w in plan["workouts"]] == [(d1, "4x8 Threshold"), (d2, "Long Z2")]
+    assert plan["workouts"][0]["duration_s"] > 0 and plan["workouts"][0]["tss"] > 0
+    assert 0.9 <= plan["workouts"][0]["peak"] <= 1.05  # threshold work, not the warm-up or a short opener
+    assert [m["role"] for m in plan["transcript"]] == ["user", "assistant"]
+    listed = {w["name"]: w["planned_date"] for w in client.get("/api/workouts").json()}
+    assert listed["Long Z2"] == d2
+
+    # Move one by hand, take one off, and let the planner remove the other.
+    first, second = plan["workouts"]
+    moved = client.put(f"/api/workouts/{first['id']}/plan", json={"date": d2}).json()
+    assert moved["planned_date"] == d2
+    assert client.put(f"/api/workouts/{first['id']}/plan", json={"date": "next tuesday"}).status_code == 400
+    client.put(f"/api/workouts/{first['id']}/plan", json={"date": None})
+    monkeypatch.setattr(llm.anthropic, "Anthropic", lambda: PlanFake([], remove=[second["id"]]))
+    client.post("/api/plan/chat", json={"message": "clear Thursday"})
+    assert client.get(f"/api/plan?start={today.isoformat()}").json()["workouts"] == []
+    assert len(client.get("/api/workouts").json()) >= 2  # off the calendar, still in the list
+
+    # Another user can't plan someone else's workout; starting over keeps the calendar.
+    client.delete("/api/plan/chat")
+    assert client.get(f"/api/plan?start={today.isoformat()}").json()["transcript"] == []
+    client.post("/api/logout")
+    _as(client, "someone-else@example.com")
+    assert client.put(f"/api/workouts/{first['id']}/plan", json={"date": d1}).status_code == 404
+
+
+def test_planning_chat_history_is_capped():
+    turn = lambda i: [{"role": "user", "content": [{"type": "text", "text": f"ctx {i}"}]},  # noqa: E731
+                      {"role": "assistant", "content": [{"type": "tool_use", "id": f"t{i}", "name": "x", "input": {}}]},
+                      {"role": "user", "content": [{"type": "tool_result", "tool_use_id": f"t{i}", "content": "ok"}]},
+                      {"role": "assistant", "content": [{"type": "text", "text": f"done {i}"}]}]
+    history = [m for i in range(10) for m in turn(i)]
+    kept = llm.trim_history(history, 6)
+    assert len(kept) == 24 and kept[0]["content"][0]["text"] == "ctx 4"
+    assert llm.trim_history(history[:8], 6) == history[:8]

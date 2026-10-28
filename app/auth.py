@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import secrets
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, Request
 
@@ -31,4 +32,7 @@ def current_user(request: Request):
     user = db.get_user(user_id) if user_id else None
     if user is None:
         raise HTTPException(status_code=401, detail="Not signed in")
+    now = datetime.now(timezone.utc)
+    fmt = "%Y-%m-%d %H:%M:%S"  # same as SQLite's CURRENT_TIMESTAMP, so the two compare
+    db.touch_user(user["id"], now.strftime(fmt), (now - timedelta(hours=1)).strftime(fmt))
     return user

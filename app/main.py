@@ -10,6 +10,7 @@ import re
 import secrets
 import sqlite3
 import tempfile
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -25,7 +26,7 @@ from . import backup, config, db, garmin, llm, mailer, maintenance, offsite, rea
 from .auth import current_user, hash_password, verify_password
 from .exporters import ExportError, safe_filename, to_fit, to_zwo
 from .importers import MAX_ZWO_BYTES, ImportError_, from_fit, from_zwo
-from .workout import ENABLED_SPORTS, flatten, stats
+from .workout import ENABLED_SPORTS, WorkoutError, flatten, stats, validate
 
 logger = logging.getLogger("vibegrind")
 ROOT = Path(__file__).resolve().parent.parent
@@ -67,6 +68,11 @@ def landing():
 @app.get("/app")
 def index():
     return FileResponse(STATIC / "index.html")
+
+
+@app.get("/admin")
+def admin_page():
+    return FileResponse(STATIC / "admin.html")  # the page itself is public; its data needs an admin session
 
 
 # --- accounts ---------------------------------------------------------------
@@ -219,6 +225,7 @@ def delete_my_account(body: PasswordConfirm, request: Request, user=Depends(curr
 # --- password reset by email ------------------------------------------------------
 
 RESET_VALID_FOR = timedelta(hours=1)
+ADMIN_RESET_VALID_FOR = timedelta(hours=24)  # links an admin shares by hand may take a while to be opened
 
 
 class ResetRequestIn(BaseModel):
@@ -324,6 +331,57 @@ def create_invite(body: InviteIn, user=Depends(_admin)):
     return {"code": code}
 
 
+# --- admin: users and stats ----------------------------------------------------------
+
+class AdminResetIn(BaseModel):
+    send_email: bool = False
+
+
+@app.get("/api/admin/users")
+def admin_users(user=Depends(_admin)):
+    admins = config.admin_emails()
+    return {
+        "mail": mailer.available(),
+        "users": [{**dict(r), "is_admin": r["email"] in admins} for r in db.admin_users()],
+    }
+
+
+@app.post("/api/admin/users/{user_id}/reset")
+def admin_reset_link(user_id: int, body: AdminResetIn, request: Request, user=Depends(_admin)):
+    """A single-use link to choose a new password, valid 24 h: emailed to the user, or handed to the admin
+    to share. The old password keeps working until the link is used; an earlier unused link stops working."""
+    target = db.get_user(user_id)
+    if target is None:
+        raise HTTPException(404, "No such user.")
+    if body.send_email and not mailer.available():  # before a new link replaces one already shared
+        raise HTTPException(503, "Email isn't set up on this server yet. Copy the link and send it yourself.")
+    token = secrets.token_urlsafe(32)
+    expires = datetime.now(timezone.utc) + ADMIN_RESET_VALID_FOR
+    db.create_password_reset(target["id"], _token_hash(token), expires.isoformat())
+    link = f"{_public_base_url(request)}/app#reset={token}"
+    emailed = False
+    if body.send_email:
+        try:
+            mailer.send(target["email"], "Choose a new VibeGrind password", (
+                "Hi,\n\nhere's a link to choose a new password for your VibeGrind account.\n\n"
+                f"It works once, within 24 hours:\n{link}\n\n"
+                "If you didn't expect this, ignore this email; your password stays the same.\n\nVibeGrind\n"
+            ))
+        except mailer.MailError as e:
+            raise HTTPException(502, f"{e} Copy the link and send it yourself.")
+        emailed = True
+    return {"link": link, "expires_at": expires.isoformat(), "emailed": emailed}
+
+
+@app.get("/api/admin/stats")
+def admin_stats(user=Depends(_admin)):
+    since = (date.today() - timedelta(days=29)).isoformat()
+    stats = db.admin_stats(since)
+    month = _today()[:7]
+    return {**stats, "since": since, "cost_month": round(db.cost_this_month(month), 2),
+            "budget": config.monthly_budget_usd()}
+
+
 # --- admin: backup and restore ------------------------------------------------------
 
 @app.get("/api/admin/backup")
@@ -391,6 +449,7 @@ def _workout_view(user, row) -> dict:
         "stats": stats(workout, pace) if workout else None,
         "transcript": llm.visible_transcript(history),
         "source_filename": row["source_filename"],
+        "planned_date": row["planned_date"],
     }
 
 
@@ -431,9 +490,22 @@ def chat(workout_id: int, body: ChatIn, user=Depends(current_user)):
     _check_chat_allowed(user)
     current = json.loads(row["workout_json"]) if row["workout_json"] else None
     history = json.loads(row["messages_json"])
-    try:
+    with _claude_errors():
         reply, workout, history, usage = llm.chat(user, history, current, body.message,
                                                   readiness_text=_readiness_for_chat(user))
+    db.save_workout(user["id"], workout_id, workout, history)
+    db.record_usage(user["id"], _today(), usage.input_tokens, usage.output_tokens, usage.cost_usd)
+    view = _workout_view(user, _get_row(user, workout_id))
+    view["reply"] = reply
+    view["messages_left_today"] = _messages_left(user)
+    return view
+
+
+@contextmanager
+def _claude_errors():
+    """Turn Claude API failures into answers the app can show."""
+    try:
+        yield
     except llm.MissingCredentials:
         raise HTTPException(500, "No Anthropic API key is configured on the server. Set ANTHROPIC_API_KEY and restart.")
     except anthropic.AuthenticationError:
@@ -444,12 +516,169 @@ def chat(workout_id: int, body: ChatIn, user=Depends(current_user)):
         raise HTTPException(502, f"Claude API error: {e.message}")
     except anthropic.APIConnectionError:
         raise HTTPException(502, "Couldn't reach the Claude API.")
-    db.save_workout(user["id"], workout_id, workout, history)
+
+
+# --- calendar -------------------------------------------------------------------------
+
+PLAN_AHEAD = timedelta(days=56)  # how far ahead the planning chat may put workouts
+PLAN_CHAT_TURNS = 6  # earlier planning messages are dropped; the calendar itself is sent every turn
+
+
+class PlanDateIn(BaseModel):
+    date: str | None = None
+
+
+class PlanChatIn(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+    today: str | None = None  # the browser's local date; the server runs on UTC
+
+
+def _parse_day(text: str | None, field: str = "date") -> date:
+    try:
+        return date.fromisoformat(text or "")
+    except ValueError:
+        raise HTTPException(400, f"Give the {field} as YYYY-MM-DD.")
+
+
+def _local_today(text: str | None) -> date:
+    """The user's today: the browser's date if it's within a day of the server's (time zones), else UTC's."""
+    utc = datetime.now(timezone.utc).date()
+    try:
+        d = date.fromisoformat(text or "")
+    except ValueError:
+        return utc
+    return d if abs((d - utc).days) <= 1 else utc
+
+
+def _planned_view(user, row) -> dict:
+    workout = json.loads(row["workout_json"]) if row["workout_json"] else None
+    pace = user["threshold_pace_s_per_km"]
+    st = stats(workout, pace) if workout else None
+    return {"id": row["id"], "name": row["name"], "date": row["planned_date"], "sport": row["sport"],
+            "duration_s": st["duration_s"] if st else None, "tss": st.get("tss") if st else None,
+            "peak": _peak_intensity(flatten(workout, pace)) if workout else None}
+
+
+def _peak_intensity(segments, min_seconds: int = 300) -> float | None:
+    """The highest intensity a session holds for at least five minutes in total, so the calendar can
+    colour it by its main zone (a short opener at 110 % doesn't make threshold work a VO2 session)."""
+    spent = 0
+    for s in sorted(segments, key=lambda s: -(s["intensity"] or 0)):
+        if s["intensity"] is None:
+            continue
+        spent += s["duration_s"]
+        if spent >= min_seconds:
+            return s["intensity"]
+    return None
+
+
+@app.put("/api/workouts/{workout_id}/plan")
+def plan_workout(workout_id: int, body: PlanDateIn, user=Depends(current_user)):
+    """Put a workout on a day of the calendar, or take it off (date null)."""
+    _get_row(user, workout_id)
+    day = _parse_day(body.date).isoformat() if body.date else None
+    db.set_planned_date(user["id"], workout_id, day)
+    return _workout_view(user, _get_row(user, workout_id))
+
+
+@app.get("/api/plan")
+def get_plan(start: str, days: int = 14, user=Depends(current_user)):
+    first = _parse_day(start, "start")
+    days = max(1, min(days, 42))
+    end = first + timedelta(days=days - 1)
+    rows = db.planned_workouts(user["id"], first.isoformat(), end.isoformat())
+    return {
+        "start": first.isoformat(),
+        "end": end.isoformat(),
+        "workouts": [_planned_view(user, r) for r in rows],
+        "transcript": llm.visible_transcript(db.plan_chat(user["id"])),
+    }
+
+
+class _Planner:
+    """Applies the planning chat's tool calls to the user's calendar and reports back to Claude."""
+
+    def __init__(self, user, today: date):
+        self.user, self.today = user, today
+        self.changed = False
+
+    def _date(self, text) -> str:
+        d = date.fromisoformat(str(text))
+        if not self.today <= d <= self.today + PLAN_AHEAD:
+            raise ValueError(f"{text} is outside the planning window ({self.today} to {self.today + PLAN_AHEAD})")
+        return d.isoformat()
+
+    def plan(self, items: list) -> tuple[str, bool]:
+        done, errors = [], []
+        for i, item in enumerate(items):
+            try:
+                day = self._date(item.get("date"))
+                workout = validate(item.get("workout"))
+                old = item.get("replaces_id")
+                if old is not None:
+                    row = db.get_workout(self.user["id"], int(old))
+                    if row is None or row["planned_date"] is None:
+                        raise ValueError(f"there's no planned workout with id {old}")
+                    db.save_workout(self.user["id"], row["id"], workout, json.loads(row["messages_json"]))
+                    db.set_planned_date(self.user["id"], row["id"], day)
+                    done.append(f"replaced #{row['id']} with \"{workout['name']}\" on {day}")
+                else:
+                    wid = db.create_workout(self.user["id"], workout)
+                    db.set_planned_date(self.user["id"], wid, day)
+                    done.append(f"#{wid} \"{workout['name']}\" on {day}")
+            except (ValueError, TypeError, WorkoutError) as e:
+                errors.append(f"item {i + 1}: {e}")
+        self.changed = self.changed or bool(done)
+        text = ("Planned: " + "; ".join(done) + ".") if done else ""
+        if errors:
+            text += (" " if text else "") + "Not planned, fix and call again: " + "; ".join(errors) + "."
+        return text, bool(errors) and not done
+
+    def remove(self, ids: list) -> tuple[str, bool]:
+        removed = []
+        for wid in ids:
+            row = db.get_workout(self.user["id"], int(wid))
+            if row is not None and row["planned_date"]:
+                db.set_planned_date(self.user["id"], row["id"], None)
+                removed.append(f"#{row['id']}")
+        self.changed = self.changed or bool(removed)
+        return (f"Took {', '.join(removed)} off the calendar." if removed else "None of those ids were planned."), not removed
+
+
+def _plan_context(user, today: date) -> str:
+    rows = db.planned_workouts(user["id"], (today - timedelta(days=7)).isoformat(), (today + PLAN_AHEAD).isoformat())
+    lines = [f"Today is {today.isoformat()} ({today.strftime('%A')}).", "Planned workouts (past week and ahead):"]
+    for r in rows:
+        v = _planned_view(user, r)
+        d = date.fromisoformat(v["date"])
+        dur = f"{round(v['duration_s'] / 60)} min" if v["duration_s"] else "no steps"
+        tss = f", TSS {round(v['tss'])}" if v["tss"] else ""
+        lines.append(f"- {v['date']} ({d.strftime('%a')}): #{v['id']} \"{v['name']}\", {dur}{tss}")
+    if not rows:
+        lines.append("- none")
+    return "\n".join(lines)
+
+
+@app.post("/api/plan/chat")
+def plan_chat(body: PlanChatIn, user=Depends(current_user)):
+    _check_chat_allowed(user)
+    today = _local_today(body.today)
+    planner = _Planner(user, today)
+    with _claude_errors():
+        reply, history, usage = llm.plan_chat(user, llm.trim_history(db.plan_chat(user["id"]), PLAN_CHAT_TURNS), body.message,
+                                              _plan_context(user, today), planner,
+                                              readiness_text=_readiness_for_chat(user))
+    db.save_plan_chat(user["id"], history)
     db.record_usage(user["id"], _today(), usage.input_tokens, usage.output_tokens, usage.cost_usd)
-    view = _workout_view(user, _get_row(user, workout_id))
-    view["reply"] = reply
-    view["messages_left_today"] = _messages_left(user)
-    return view
+    return {"reply": reply, "changed": planner.changed, "messages_left_today": _messages_left(user),
+            "transcript": llm.visible_transcript(history)}
+
+
+@app.delete("/api/plan/chat")
+def clear_plan_chat(user=Depends(current_user)):
+    """Start the planning conversation over; planned workouts stay on the calendar."""
+    db.save_plan_chat(user["id"], [])
+    return {"ok": True}
 
 
 def _readiness_for_chat(user) -> str | None:

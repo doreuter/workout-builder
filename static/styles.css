@@ -249,8 +249,47 @@ button.danger { background: var(--error); border-color: var(--error); color: #ff
 .tab.active { color: var(--text); background: var(--bg); font-weight: 500; }
 
 /* readiness dashboard */
-.app.view-readiness .sidebar, .app.view-readiness .main { display: none; }
-.app.view-readiness #menu-btn { visibility: hidden; }
+.app.view-full .sidebar, .app.view-full .main { display: none; }
+.app.view-full #menu-btn { visibility: hidden; }
+
+/* calendar */
+.plan { grid-column: 1 / -1; grid-row: 2; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; padding: 16px 24px; }
+.plan-cal { overflow-y: auto; min-width: 0; padding-bottom: 16px; }
+.p-nav { display: flex; gap: .4rem; }
+.p-week { margin-bottom: 1.25rem; }
+.p-week-head { display: flex; justify-content: space-between; gap: 1rem; font-size: .85rem; margin-bottom: .4rem; }
+.p-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.p-day { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; min-height: 110px; padding: .4rem; display: flex; flex-direction: column; gap: .35rem; }
+.p-day.today { border-color: var(--accent); }
+.p-day.past { opacity: .6; }
+.p-day-head { font-size: .78rem; color: var(--muted); }
+.p-day.today .p-day-head { color: var(--accent); }
+.p-item { position: relative; background: var(--surface-2); border-radius: 6px; border-left: 4px solid var(--z2); padding: .3rem 1.3rem .3rem .45rem; cursor: pointer; display: grid; gap: .1rem; }
+.p-item:hover { background: var(--active); }
+.p-name { font-size: .8rem; line-height: 1.25; overflow-wrap: anywhere; }
+.p-meta { font-family: var(--mono); font-size: .7rem; color: var(--muted); }
+.p-off { position: absolute; top: .15rem; right: .15rem; border: none; background: none; color: var(--muted); padding: .1rem .25rem; font-size: .7rem; visibility: hidden; }
+.p-item:hover .p-off, .p-item:focus-within .p-off { visibility: visible; }
+.plan-chat { display: flex; flex-direction: column; min-height: 0; }
+.plan-chat-head { display: flex; justify-content: space-between; align-items: baseline; padding: .9rem 1rem 0; }
+.plan-chat-head h2 { font-size: 1rem; }
+.plan-date { display: flex; align-items: end; gap: .75rem; flex-wrap: wrap; margin-top: .6rem; }
+.plan-date label { font-size: .85rem; }
+.plan-date input { width: auto; padding: .35rem .5rem; color-scheme: dark; }
+.w-date { display: block; font-size: .72rem; color: var(--muted); }
+@media (max-width: 1100px) {
+  .plan { grid-template-columns: 1fr; overflow-y: auto; }
+  .plan-cal { overflow: visible; }
+  .plan-chat { min-height: 420px; }
+}
+@media (max-width: 700px) {
+  .plan { padding: 12px; }
+  .p-days { grid-template-columns: 1fr; }
+  .p-day { min-height: 0; flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .p-day-head { width: 4.5rem; flex: none; }
+  .p-item { flex: 1 1 12rem; }
+  .p-off { visibility: visible; }
+}
 .readiness { grid-column: 1 / -1; grid-row: 2; overflow-y: auto; padding: 16px 24px 32px; min-width: 0; }
 .r-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; }
 .r-head h1 { margin: 0; }

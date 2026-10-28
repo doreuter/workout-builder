@@ -213,7 +213,7 @@ async function startApp() {
   $("#app").hidden = false;
   $("#user-email").textContent = state.user.email;
   renderQuota(state.user.messages_left_today);
-  $("#tabs").hidden = !state.user.garmin;
+  $("#tab-readiness").hidden = !state.user.garmin;
   showView("workouts");
   const integrations = await api("/api/integrations").catch(() => ({}));
   state.zwiftAvailable = !!integrations.zwift?.available;
@@ -236,7 +236,9 @@ function renderList() {
   for (const w of state.workouts) {
     const li = el("li", w.id === state.currentId ? { class: "active" } : {});
     li.append(el("span", { class: "sport-dot" }, w.sport === "running" ? "🏃" : w.sport === "cycling" ? "🚴" : "•"));
-    li.append(el("span", { class: "w-title" }, w.name));
+    const title = el("span", { class: "w-title" }, w.name);
+    if (w.planned_date) title.append(el("span", { class: "w-date" }, fmtDay(w.planned_date)));
+    li.append(title);
     const del = el("button", { class: "del", "aria-label": `Delete ${w.name}` }, "✕");
     del.addEventListener("click", async (e) => {
       e.stopPropagation();
@@ -369,6 +371,8 @@ function renderWorkout() {
   $("#send-zwift").hidden = !(state.zwiftAvailable || state.browserZwift);
   renderZwiftHelp();
   if (!workout) return;
+  $("#w-plan-date").value = state.view.planned_date || "";
+  $("#w-plan-clear").hidden = !state.view.planned_date;
 
   $("#w-name").textContent = workout.name;
   $("#w-desc").textContent = workout.description;
@@ -729,16 +733,179 @@ $("#import-file").addEventListener("change", async (e) => {
   openImported(api("/api/import/file", { method: "POST", form }));
 });
 
+// --- calendar -------------------------------------------------------------------------
+
+const isoLocal = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const todayIso = () => isoLocal(new Date());
+
+function mondayOf(d) {
+  const m = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  m.setDate(m.getDate() - ((m.getDay() + 6) % 7));
+  return m;
+}
+
+async function setPlannedDate(id, date) {
+  const view = await api(`/api/workouts/${id}/plan`, { method: "PUT", body: { date } });
+  if (state.currentId === id) {
+    state.view.planned_date = view.planned_date;
+    renderWorkout();
+  }
+  await loadList();
+}
+
+$("#w-plan-date").addEventListener("change", (e) => setPlannedDate(state.currentId, e.target.value || null));
+$("#w-plan-clear").addEventListener("click", () => setPlannedDate(state.currentId, null));
+
+async function loadPlan() {
+  if (!state.planStart) state.planStart = mondayOf(new Date());
+  try {
+    state.plan = await api(`/api/plan?start=${isoLocal(state.planStart)}&days=14`);
+    $("#p-error").hidden = true;
+    renderPlan();
+  } catch (err) {
+    if (err.status === 401) return showAuth();
+    $("#p-error").textContent = err.message;
+    $("#p-error").hidden = false;
+  }
+}
+
+function renderPlan() {
+  const { workouts, transcript } = state.plan;
+  const start = state.planStart;
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 13);
+  $("#p-range").textContent = `${start.toLocaleDateString(undefined, { day: "numeric", month: "short" })} – ${end.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`;
+  const today = todayIso();
+  const byDay = {};
+  for (const w of workouts) (byDay[w.date] ||= []).push(w);
+
+  const box = $("#p-weeks");
+  box.replaceChildren();
+  for (let wk = 0; wk < 2; wk++) {
+    const week = el("div", { class: "p-week" });
+    const monday = new Date(start.getFullYear(), start.getMonth(), start.getDate() + wk * 7);
+    let secs = 0, tss = 0, count = 0;
+    const grid = el("div", { class: "p-days" });
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
+      const iso = isoLocal(d);
+      const cell = el("div", { class: `p-day${iso === today ? " today" : ""}${iso < today ? " past" : ""}` });
+      cell.append(el("div", { class: "p-day-head" }, d.toLocaleDateString(undefined, { weekday: "short", day: "numeric" })));
+      for (const w of byDay[iso] || []) {
+        secs += w.duration_s || 0;
+        tss += w.tss || 0;
+        count++;
+        const zone = zoneFor(w.sport || "cycling", w.peak);  // coloured by the hardest part of the session
+        const item = el("div", { class: "p-item", role: "button", tabindex: "0", title: `Hardest part: ${zone.name}` });
+        item.style.borderLeftColor = zone.color;
+        item.append(el("span", { class: "p-name" }, w.name),
+          el("span", { class: "p-meta" }, [w.duration_s ? fmtDuration(w.duration_s) : null, w.tss ? `TSS ${Math.round(w.tss)}` : null].filter(Boolean).join(" · ")));
+        const open = () => { showView("workouts"); openWorkout(w.id); };
+        item.addEventListener("click", open);
+        item.addEventListener("keydown", (e) => { if (e.key === "Enter") open(); });
+        const off = el("button", { type: "button", class: "p-off", "aria-label": `Take ${w.name} off the calendar` }, "✕");
+        off.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          await setPlannedDate(w.id, null);
+          await loadPlan();
+        });
+        item.append(off);
+        cell.append(item);
+      }
+      grid.append(cell);
+    }
+    const head = el("div", { class: "p-week-head" });
+    head.append(el("span", {}, `Week of ${monday.toLocaleDateString(undefined, { day: "numeric", month: "short" })}`),
+      el("span", { class: "muted" }, count ? `${count} workout${count === 1 ? "" : "s"} · ${fmtDuration(secs)} · TSS ${Math.round(tss)}` : "nothing planned"));
+    week.append(head, grid);
+    box.append(week);
+  }
+  renderPlanMessages(transcript);
+}
+
+const PLAN_EXAMPLES = [
+  "Plan next week: 4 rides, long ride on Saturday, Wednesday off",
+  "Build me a 2-week sweet spot block, 3 sessions a week",
+  "Make this week easier, I'm tired",
+];
+
+function renderPlanMessages(transcript, extra = []) {
+  const box = $("#p-messages");
+  box.replaceChildren();
+  const all = [...transcript, ...extra];
+  if (!all.length) {
+    const intro = el("div", { class: "msg assistant" });
+    intro.textContent = "Tell me how many days you can ride and what you're training for, and I'll put workouts on your calendar. You can move or change them later.";
+    const ex = el("div", { class: "examples" });
+    for (const text of PLAN_EXAMPLES) {
+      const b = el("button", { type: "button" }, text);
+      b.addEventListener("click", () => sendPlanMessage(text));
+      ex.append(b);
+    }
+    intro.append(ex);
+    box.append(intro);
+  }
+  for (const m of all) {
+    const node = el("div", { class: `msg ${m.role}${m.cls ? " " + m.cls : ""}` });
+    if (m.role === "assistant") appendFormatted(node, m.text);
+    else node.textContent = m.text;
+    box.append(node);
+  }
+  box.scrollTop = box.scrollHeight;
+}
+
+async function sendPlanMessage(text) {
+  text = text.trim();
+  if (!text) return;
+  $("#p-input").value = "";
+  $("#p-send").disabled = true;
+  const before = state.plan?.transcript || [];
+  renderPlanMessages(before, [{ role: "user", text }, { role: "assistant", cls: "pending", text: "Planning…" }]);
+  try {
+    const r = await api("/api/plan/chat", { method: "POST", body: { message: text, today: todayIso() } });
+    renderQuota(r.messages_left_today);
+    if (r.changed) await loadList();
+    await loadPlan();
+  } catch (err) {
+    if (err.status === 401) return showAuth();
+    renderPlanMessages(before, [{ role: "user", text }, { role: "assistant", cls: "error", text: err.message }]);
+    $("#p-input").value = text;
+  } finally {
+    $("#p-send").disabled = false;
+  }
+}
+
+$("#p-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  sendPlanMessage($("#p-input").value);
+});
+$("#p-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendPlanMessage($("#p-input").value);
+  }
+});
+const shiftWeeks = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7 * n);  // safe across DST
+$("#p-prev").addEventListener("click", () => { state.planStart = shiftWeeks(state.planStart, -1); loadPlan(); });
+$("#p-next").addEventListener("click", () => { state.planStart = shiftWeeks(state.planStart, 1); loadPlan(); });
+$("#p-today").addEventListener("click", () => { state.planStart = mondayOf(new Date()); loadPlan(); });
+$("#p-clear").addEventListener("click", async () => {
+  if (!confirm("Start the planning chat over? Your planned workouts stay on the calendar.")) return;
+  await api("/api/plan/chat", { method: "DELETE" });
+  loadPlan();
+});
+
 // --- readiness dashboard ----------------------------------------------------------------
 
 const PART_NAMES = { hrv: "HRV", sleep: "Sleep", recovery: "Recovery time", resting_hr: "Resting heart rate", body_battery: "Body Battery", load: "Training load" };
 
 function showView(view) {
   state.viewName = view;
-  $("#app").classList.toggle("view-readiness", view === "readiness");
+  $("#app").classList.toggle("view-full", view !== "workouts");
   $("#readiness").hidden = view !== "readiness";
+  $("#plan").hidden = view !== "plan";
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
   if (view === "readiness") loadReadiness(false);
+  if (view === "plan") loadPlan();
 }
 
 document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => showView(t.dataset.view)));
@@ -1090,7 +1257,6 @@ $("#settings-btn").addEventListener("click", () => {
   $("#admin-invites").hidden = !state.user.is_admin;
   $("#admin-backup").hidden = !state.user.is_admin;
   if (state.user.is_admin) {
-    loadInvites();
     api("/api/admin/restore").then((r) => { $("#restore-box").hidden = !r.allowed; }).catch(() => {});
     api("/api/admin/offsite").then((o) => {
       $("#offsite-status").textContent = !o.configured
@@ -1120,20 +1286,6 @@ $("#zwift-folder-disconnect").addEventListener("click", async () => {
   renderZwiftSettings();
   renderZwiftHelp();
 });
-
-async function loadInvites() {
-  const list = $("#invite-list");
-  const invites = await api("/api/admin/invites").catch(() => []);
-  list.replaceChildren();
-  if (!invites.length) list.append(el("li", { class: "muted" }, "No invites yet."));
-  for (const inv of invites) {
-    const li = el("li", inv.used_at ? { class: "used" } : {});
-    li.append(el("code", {}, inv.code));
-    const who = inv.used_at ? `used by ${inv.used_by_email || "a deleted account"}` : "unused";
-    li.append(el("span", { class: "muted" }, [inv.note, who].filter(Boolean).join(" · ")));
-    list.append(li);
-  }
-}
 
 $("#delete-btn").addEventListener("click", async () => {
   const msg = $("#delete-msg");
@@ -1174,17 +1326,6 @@ $("#restore-btn").addEventListener("click", async () => {
     msg.className = "small error";
     msg.textContent = err.message;
     btn.disabled = false;
-  }
-});
-
-$("#invite-create").addEventListener("click", async () => {
-  try {
-    await api("/api/admin/invites", { method: "POST", body: { note: $("#invite-note").value.trim() || null } });
-    $("#invite-note").value = "";
-    await loadInvites();
-  } catch (err) {
-    $("#settings-error").textContent = err.message;
-    $("#settings-error").hidden = false;
   }
 });
 
@@ -1250,6 +1391,14 @@ $("#settings-save").addEventListener("click", async (e) => {
   $("#forgot-wrap").hidden = !state.config.password_reset;
   $("#backup-days").textContent = state.config.backup_keep_days ?? 14;
   if (location.hash.startsWith("#reset=")) return showAuth("reset");
+  if (location.hash.startsWith("#invite=")) {  // a shared invite link: open the sign-up with the code filled in
+    const code = decodeURIComponent(location.hash.slice(8));
+    history.replaceState(null, "", location.pathname);
+    showAuth();
+    setAuthMode(true);
+    $("#auth-form").invite.value = code;
+    return;
+  }
   try {
     state.user = await api("/api/me");
     await startApp();

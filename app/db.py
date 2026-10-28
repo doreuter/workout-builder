@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
     max_hr INTEGER,
     lthr_run INTEGER,   -- threshold heart rates (bpm)
     lthr_bike INTEGER,
+    last_seen_at TEXT,  -- UTC, updated at most hourly
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS workouts (
@@ -27,10 +28,15 @@ CREATE TABLE IF NOT EXISTS workouts (
     sport TEXT,
     workout_json TEXT,
     messages_json TEXT NOT NULL DEFAULT '[]',
+    planned_date TEXT,  -- YYYY-MM-DD when it's on the calendar
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_workouts_user ON workouts(user_id);
+CREATE TABLE IF NOT EXISTS plan_chats (  -- one planning conversation per user
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    messages_json TEXT NOT NULL DEFAULT '[]'
+);
 CREATE TABLE IF NOT EXISTS invites (
     code TEXT PRIMARY KEY,
     created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -131,9 +137,12 @@ def init_db() -> None:
             if name not in columns:
                 conn.execute(f"ALTER TABLE garmin_activities ADD COLUMN {name} {kind}")
         columns = {r["name"] for r in conn.execute("PRAGMA table_info(users)")}
-        for name in ("lthr_run", "lthr_bike"):
+        for name, kind in (("lthr_run", "INTEGER"), ("lthr_bike", "INTEGER"), ("last_seen_at", "TEXT")):
             if name not in columns:
-                conn.execute(f"ALTER TABLE users ADD COLUMN {name} INTEGER")
+                conn.execute(f"ALTER TABLE users ADD COLUMN {name} {kind}")
+        columns = {r["name"] for r in conn.execute("PRAGMA table_info(workouts)")}
+        if "planned_date" not in columns:
+            conn.execute("ALTER TABLE workouts ADD COLUMN planned_date TEXT")
 
 
 @contextmanager
@@ -177,6 +186,54 @@ def update_profile(user_id: int, ftp, threshold_pace_s_per_km, lthr_run=None, lt
         )
 
 
+def touch_user(user_id: int, now: str, stale_before: str) -> None:
+    """Record activity, at most once an hour (cheap enough to call on every request)."""
+    with connect() as conn:
+        conn.execute(
+            "UPDATE users SET last_seen_at = ? WHERE id = ? AND (last_seen_at IS NULL OR last_seen_at < ?)",
+            (now, user_id, stale_before),
+        )
+
+
+def admin_users():
+    """Every account with what the admin page shows about it."""
+    with connect() as conn:
+        return conn.execute(
+            """SELECT u.id, u.email, u.created_at, u.last_seen_at, u.ftp,
+                      (SELECT COUNT(*) FROM workouts w WHERE w.user_id = u.id AND w.workout_json IS NOT NULL) AS workouts,
+                      (SELECT COUNT(*) FROM workouts w WHERE w.user_id = u.id AND w.planned_date IS NOT NULL) AS planned,
+                      (SELECT COALESCE(SUM(messages), 0) FROM usage g WHERE g.user_id = u.id
+                         AND g.day >= date('now', '-30 days')) AS messages_30d,
+                      (SELECT COALESCE(SUM(cost_usd), 0) FROM usage g WHERE g.user_id = u.id
+                         AND g.day >= date('now', '-30 days')) AS cost_30d,
+                      (SELECT code FROM invites i WHERE i.used_by = u.id) AS invite_code
+               FROM users u ORDER BY u.created_at DESC, u.id DESC"""
+        ).fetchall()
+
+
+def admin_stats(since: str) -> dict:
+    """Totals for the admin page, plus per-day series from `since` (YYYY-MM-DD) on."""
+    with connect() as conn:
+        one = lambda sql, *a: conn.execute(sql, a).fetchone()[0]  # noqa: E731
+        return {
+            "users": one("SELECT COUNT(*) FROM users"),
+            "users_new_30d": one("SELECT COUNT(*) FROM users WHERE created_at >= datetime('now', '-30 days')"),
+            "active_7d": one("SELECT COUNT(*) FROM users WHERE last_seen_at >= datetime('now', '-7 days')"),
+            "active_30d": one("SELECT COUNT(*) FROM users WHERE last_seen_at >= datetime('now', '-30 days')"),
+            "workouts": one("SELECT COUNT(*) FROM workouts WHERE workout_json IS NOT NULL"),
+            "workouts_30d": one("SELECT COUNT(*) FROM workouts WHERE workout_json IS NOT NULL "
+                                "AND created_at >= datetime('now', '-30 days')"),
+            "planned": one("SELECT COUNT(*) FROM workouts WHERE planned_date IS NOT NULL"),
+            "messages_30d": one("SELECT COALESCE(SUM(messages), 0) FROM usage WHERE day >= date('now', '-30 days')"),
+            "by_day": [dict(r) for r in conn.execute(
+                """SELECT day, SUM(messages) AS messages, COUNT(DISTINCT user_id) AS users
+                   FROM usage WHERE day >= ? GROUP BY day ORDER BY day""", (since,)).fetchall()],
+            "workouts_by_day": [dict(r) for r in conn.execute(
+                """SELECT date(created_at) AS day, COUNT(*) AS workouts FROM workouts
+                   WHERE workout_json IS NOT NULL AND date(created_at) >= ? GROUP BY day""", (since,)).fetchall()],
+        }
+
+
 def set_password(user_id: int, password_hash: str) -> None:
     with connect() as conn:
         conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, user_id))
@@ -195,13 +252,15 @@ def export_user(user_id: int) -> dict:
         def rows(sql):
             return [dict(r) for r in conn.execute(sql, (user_id,)).fetchall()]
         user = dict(conn.execute(
-            "SELECT email, ftp, threshold_pace_s_per_km, max_hr, lthr_run, lthr_bike, created_at FROM users WHERE id = ?", (user_id,)
+            "SELECT email, ftp, threshold_pace_s_per_km, max_hr, lthr_run, lthr_bike, created_at, last_seen_at "
+            "FROM users WHERE id = ?", (user_id,)
         ).fetchone())
         return {
             "account": user,
             "invite_used": rows("SELECT code, used_at FROM invites WHERE used_by = ?"),
-            "workouts": rows("SELECT id, name, sport, workout_json, messages_json, source_filename, created_at, updated_at "
-                             "FROM workouts WHERE user_id = ? ORDER BY id"),
+            "workouts": rows("SELECT id, name, sport, workout_json, messages_json, source_filename, planned_date, "
+                             "created_at, updated_at FROM workouts WHERE user_id = ? ORDER BY id"),
+            "plan_chat": rows("SELECT messages_json FROM plan_chats WHERE user_id = ?"),
             "usage": rows("SELECT day, messages, input_tokens, output_tokens, cost_usd FROM usage WHERE user_id = ? ORDER BY day"),
             "garmin_days": rows("SELECT * FROM garmin_days WHERE user_id = ? ORDER BY day"),
             "garmin_activities": rows("SELECT * FROM garmin_activities WHERE user_id = ? ORDER BY start_local"),
@@ -454,7 +513,7 @@ def list_workouts(user_id: int, sports: tuple[str, ...]):
     marks = ", ".join("?" * len(sports))
     with connect() as conn:
         return conn.execute(
-            f"""SELECT id, name, sport, updated_at FROM workouts
+            f"""SELECT id, name, sport, planned_date, updated_at FROM workouts
                 WHERE user_id = ? AND (sport IS NULL OR sport IN ({marks}))
                 ORDER BY updated_at DESC, id DESC""",
             (user_id, *sports),
@@ -489,3 +548,34 @@ def save_workout(user_id: int, workout_id: int, workout: dict | None, messages: 
 def delete_workout(user_id: int, workout_id: int) -> None:
     with connect() as conn:
         conn.execute("DELETE FROM workouts WHERE id = ? AND user_id = ?", (workout_id, user_id))
+
+
+# --- calendar --------------------------------------------------------------
+
+def set_planned_date(user_id: int, workout_id: int, day: str | None) -> None:
+    with connect() as conn:
+        conn.execute("UPDATE workouts SET planned_date = ? WHERE id = ? AND user_id = ?", (day, workout_id, user_id))
+
+
+def planned_workouts(user_id: int, start: str, end: str):
+    with connect() as conn:
+        return conn.execute(
+            """SELECT id, name, sport, planned_date, workout_json FROM workouts
+               WHERE user_id = ? AND planned_date BETWEEN ? AND ? ORDER BY planned_date, id""",
+            (user_id, start, end),
+        ).fetchall()
+
+
+def plan_chat(user_id: int) -> list:
+    with connect() as conn:
+        row = conn.execute("SELECT messages_json FROM plan_chats WHERE user_id = ?", (user_id,)).fetchone()
+    return json.loads(row["messages_json"]) if row else []
+
+
+def save_plan_chat(user_id: int, messages: list) -> None:
+    with connect() as conn:
+        conn.execute(
+            """INSERT INTO plan_chats (user_id, messages_json) VALUES (?, ?)
+               ON CONFLICT (user_id) DO UPDATE SET messages_json = excluded.messages_json""",
+            (user_id, json.dumps(messages)),
+        )

@@ -1,0 +1,40 @@
+/* Admin page, on top of styles.css. */
+body.admin-page { height: auto; min-height: 100%; }
+.admin-page .topbar { position: sticky; top: 0; z-index: 2; }
+.admin-badge { font-size: .75rem; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: .1rem .55rem; }
+.admin-main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+.admin-h { margin-top: 2rem; }
+.admin-main h1 { margin-bottom: .75rem; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.tile { padding: .9rem 1rem; display: grid; gap: .15rem; }
+.tile-value { font-family: var(--mono); font-size: 1.7rem; line-height: 1.2; }
+
+.admin-chart { margin-top: 12px; padding: 1rem 1.1rem .6rem; }
+.admin-chart h2 { font-size: 1rem; }
+.admin-chart p { margin: 0 0 .4rem; }
+.chart-box svg { width: 100%; height: auto; display: block; }
+.chart-box .gridline { stroke: var(--grid); stroke-width: 1; }
+.chart-box .axis-label { font-size: 11px; fill: var(--muted); }
+.chart-box .bar { fill: var(--series); }
+
+.admin-card { padding: 1rem 1.1rem; }
+.admin-card > p { margin: .4rem 0 .8rem; }
+.table-wrap { overflow-x: auto; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+.admin-table th { text-align: left; font-weight: 400; color: var(--muted); font-size: .75rem; padding: 0 .6rem .5rem 0; white-space: nowrap; }
+.admin-table td { padding: .55rem .6rem .55rem 0; border-top: 1px solid var(--border); vertical-align: top; }
+.admin-table td.num { font-family: var(--mono); font-size: .82rem; }
+.admin-table td.mono { font-family: var(--mono); letter-spacing: .03em; }
+.admin-table tr.used td { color: var(--muted); }
+.admin-table tr.used td.mono { text-decoration: line-through; }
+.admin-table .actions { display: flex; gap: .4rem; justify-content: flex-end; white-space: nowrap; }
+.admin-table .actions button { padding: .3rem .65rem; font-size: .82rem; }
+.pill { font-size: .7rem; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 0 .4rem; margin-left: .4rem; }
+.block { display: block; }
+
+.admin-card .invite-new button { white-space: nowrap; flex: none; }
+.share-dialog { padding: 1.3rem; display: grid; gap: .8rem; }
+.share-dialog p { margin: 0; }
+.share-link { display: flex; gap: .5rem; }
+.share-link input { font-family: var(--mono); font-size: .8rem; }

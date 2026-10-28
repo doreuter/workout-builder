@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VibeGrind admin</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/fonts.css">
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/admin.css">
+</head>
+<body class="admin-page">
+  <header class="topbar">
+    <a class="brand" href="/app"><img src="/static/brand/logo.svg" alt="" width="26" height="26"><span>Vibe<span class="grind">Grind</span></span></a>
+    <span class="admin-badge">Admin</span>
+    <span class="spacer"></span>
+    <a class="btn" href="/app">Back to the app</a>
+  </header>
+
+  <main class="admin-main">
+    <p class="error" id="admin-error" role="alert" hidden></p>
+
+    <section id="admin-body" hidden>
+      <h1>Usage</h1>
+      <div class="tiles" id="tiles"></div>
+      <article class="card admin-chart">
+        <h2>Chat messages per day, last 30 days</h2>
+        <p class="muted small" id="chart-note"></p>
+        <div class="chart-box" id="chart"></div>
+      </article>
+
+      <h1 class="admin-h">Invites</h1>
+      <article class="card admin-card">
+        <div class="invite-new">
+          <input id="invite-note" placeholder="Who is it for? (optional)" maxlength="100">
+          <button type="button" class="primary" id="invite-create">Create invite</button>
+        </div>
+        <p class="muted small">Each code lets one person create an account. Share the link: it opens the sign-up with the code filled in.</p>
+        <table class="admin-table" id="invites">
+          <thead><tr><th>Code</th><th>For</th><th>Status</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </article>
+
+      <h1 class="admin-h">Users</h1>
+      <article class="card admin-card">
+        <p class="muted small" id="mail-note"></p>
+        <div class="table-wrap">
+          <table class="admin-table" id="users">
+            <thead><tr><th>Email</th><th>Joined</th><th>Last active</th><th>Workouts</th><th>Planned</th><th>Messages (30 d)</th><th>AI cost (30 d)</th><th>Password</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <dialog id="share">
+    <div class="share-dialog">
+      <div class="dialog-head">
+        <h2 id="share-title"></h2>
+        <button type="button" class="icon-btn" id="share-close" aria-label="Close">✕</button>
+      </div>
+      <p class="small" id="share-text"></p>
+      <div class="share-link">
+        <input id="share-link" readonly>
+        <button type="button" id="share-copy">Copy</button>
+      </div>
+      <div class="row-left">
+        <button type="button" id="share-native" hidden>Share…</button>
+        <a class="btn" id="share-mail">Write an email</a>
+      </div>
+      <p class="small" id="share-msg" hidden></p>
+    </div>
+  </dialog>
+
+  <script src="/static/admin.js"></script>
+</body>
+</html>

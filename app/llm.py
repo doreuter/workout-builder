@@ -1,4 +1,4 @@
-"""Chat with Claude to create and edit a workout through a `set_workout` tool."""
+"""Chat with Claude: one workout through a `set_workout` tool, or a training plan through planning tools."""
 
 from __future__ import annotations
 
@@ -72,6 +72,69 @@ only when the request is truly ambiguous. After the tool succeeds, \
 reply in 1-3 short sentences: what the workout is and any assumptions. Do not list every step; the app \
 shows a chart. If the tool returns an error, fix the workout and call it again."""
 
+PLAN_PROMPT = """You are a cycling coach planning the user's training calendar inside a workout app. They \
+tell you what they want ("plan my week: 3 rides, long one on Saturday", "move Thursday's session to Friday", \
+"make next week easier"); you put complete structured workouts on dates with `plan_workouts`, replace them \
+(pass `replaces_id`) or take them off with `remove_planned`.
+
+The app supports cycling only. Each workout uses the same format as the app's single-workout chat: \
+intensity as a fraction of FTP, steps warmup / cooldown / steady / ramp / rest / free with duration_s, \
+`repeat` blocks for intervals, a short label on each interval step, and a clear name such as \
+"Sweet Spot 3x12" (no date in the name).
+
+The context lists today's date and weekday and what's already planned (with ids). Plan from today on, in \
+the athlete's local dates (YYYY-MM-DD). Don't put workouts on days the user wants free. Unless they say \
+otherwise: at most one workout per day, no more than two hard days (threshold, VO2 max, anaerobic) in a \
+row, an easy or rest day after a hard day, and most of the volume in Zone 2. Leave planned workouts alone \
+unless the user asks you to change them.
+
+If the context has readiness or Garmin's recovery time, use it for the next two days only: red recovery \
+or low readiness means today and tomorrow stay easy. Without it, don't guess.
+
+Zone guide (% FTP): recovery <55, endurance 56-75, tempo 76-90, sweet spot 88-94, threshold 95-105, \
+VO2 max 106-120, anaerobic >120.
+
+After the tools succeed, reply in 2-4 short sentences: the idea of the plan and anything you assumed. \
+Don't list every workout; the app shows the calendar. If a tool returns an error, fix it and call it again."""
+
+PLAN_TOOLS = [
+    {
+        "name": "plan_workouts",
+        "description": "Put one or more complete workouts on dates. Pass replaces_id to replace a planned "
+                       "workout (its date may change too).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 14,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "date": {"type": "string", "description": "YYYY-MM-DD"},
+                            "replaces_id": {"type": "integer", "description": "Id of a planned workout to replace"},
+                            "workout": WORKOUT_SCHEMA,
+                        },
+                        "required": ["date", "workout"],
+                    },
+                },
+            },
+            "required": ["items"],
+        },
+    },
+    {
+        "name": "remove_planned",
+        "description": "Take planned workouts off the calendar (they stay in the user's workout list).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"ids": {"type": "array", "items": {"type": "integer"}, "minItems": 1}},
+            "required": ["ids"],
+        },
+    },
+]
+
+
 class MissingCredentials(RuntimeError):
     pass
 
@@ -106,7 +169,6 @@ def chat(user, history: list, current: dict | None, user_text: str, client: anth
     `history` holds raw API message dicts and is only ever appended to, so earlier turns
     (including thinking blocks) are replayed unchanged.
     """
-    client = client or anthropic.Anthropic()
     messages = list(history)
     # Context rides along as a separate text block: the profile every turn (settings may have
     # changed) and the workout itself whenever Claude hasn't seen this version yet (e.g. imported).
@@ -121,6 +183,58 @@ def chat(user, history: list, current: dict | None, user_text: str, client: anth
     ]})
 
     workout = current
+
+    def handle(tu):
+        nonlocal workout
+        try:
+            candidate = validate(tu.input)
+        except WorkoutError as e:
+            return f"Invalid workout: {e}", True
+        workout = candidate
+        return "Saved. " + summary(workout, user["threshold_pace_s_per_km"]), False
+
+    reply, usage = _run(client, SYSTEM_PROMPT, TOOLS, messages, handle,
+                        "I couldn't build a valid workout. Could you rephrase the request?")
+    return reply or "Done.", workout, messages, usage
+
+
+def plan_chat(user, history: list, user_text: str, plan_text: str, planner, client: anthropic.Anthropic | None = None,
+              readiness_text: str | None = None):
+    """Run one planning turn. `plan_text` describes today and what's on the calendar; `planner` applies
+    the tools (add / replace / remove workouts on dates) and says what it did. Returns (reply, new_history, usage)."""
+    messages = list(history)
+    context = _profile_text(user) + "\n\n" + plan_text
+    if readiness_text:
+        context += "\n\n" + readiness_text
+    messages.append({"role": "user", "content": [
+        {"type": "text", "text": context},
+        {"type": "text", "text": user_text},
+    ]})
+
+    def handle(tu):
+        if tu.name == "plan_workouts":
+            return planner.plan(tu.input.get("items") or [])
+        if tu.name == "remove_planned":
+            return planner.remove(tu.input.get("ids") or [])
+        return f"Unknown tool {tu.name}.", True
+
+    reply, usage = _run(client, PLAN_PROMPT, PLAN_TOOLS, messages, handle,
+                        "I couldn't finish the plan. Could you rephrase the request?")
+    return reply or "Done.", messages, usage
+
+
+def trim_history(history: list, max_turns: int) -> list:
+    """Keep only the last `max_turns` exchanges, cut at the start of a user text turn so tool calls and
+    their results stay together. Keeps a long-running chat (the planner) from growing without bound."""
+    starts = [i for i, m in enumerate(history) if m["role"] == "user" and isinstance(m["content"], list)
+              and m["content"] and m["content"][0].get("type") == "text"]
+    return history[starts[-max_turns]:] if len(starts) > max_turns else history
+
+
+def _run(client, system: str, tools: list, messages: list, handle, give_up: str):
+    """The tool loop shared by both chats: call Claude, run its tool calls through `handle(tool_use)`
+    -> (result_text, is_error), repeat until it answers in text. Appends to `messages` in place."""
+    client = client or anthropic.Anthropic()
     reply = ""
     usage = Usage()
     name = model()
@@ -130,8 +244,8 @@ def chat(user, history: list, current: dict | None, user_text: str, client: anth
             response = client.beta.messages.create(
                 model=name,
                 max_tokens=16000,
-                system=SYSTEM_PROMPT,
-                tools=TOOLS,
+                system=system,
+                tools=tools,
                 messages=messages,
                 output_config={"effort": "medium"},
                 **extra,
@@ -156,18 +270,15 @@ def chat(user, history: list, current: dict | None, user_text: str, client: anth
 
         results = []
         for tu in tool_uses:
-            try:
-                candidate = validate(tu.input)
-            except WorkoutError as e:
-                results.append({"type": "tool_result", "tool_use_id": tu.id, "content": f"Invalid workout: {e}", "is_error": True})
-            else:
-                workout = candidate
-                results.append({"type": "tool_result", "tool_use_id": tu.id, "content": "Saved. " + summary(workout, user["threshold_pace_s_per_km"])})
+            content, is_error = handle(tu)
+            result = {"type": "tool_result", "tool_use_id": tu.id, "content": content}
+            if is_error:
+                result["is_error"] = True
+            results.append(result)
         messages.append({"role": "user", "content": results})
     else:
-        reply = "I couldn't build a valid workout. Could you rephrase the request?"
-
-    return reply or "Done.", workout, messages, usage
+        reply = give_up
+    return reply, usage
 
 
 @dataclass
