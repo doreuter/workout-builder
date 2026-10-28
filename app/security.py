@@ -13,23 +13,55 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse, RedirectResponse
 
 _hits: dict[tuple[str, str], deque] = defaultdict(deque)
+_windows: dict[str, int] = {}  # action -> window, so stale entries can be swept
 _lock = threading.Lock()
+MAX_KEYS = 10_000  # above this, entries with no recent hits are dropped
+
+# Render sits behind Cloudflare, which sets CF-Connecting-IP to the address that actually connected
+# (overwriting anything the client sent). X-Forwarded-For can't be used: clients can prepend to it, and
+# uvicorn's --forwarded-allow-ips "*" picks its first entry.
+CLIENT_IP_HEADERS = ("cf-connecting-ip",)
 
 
-def check_rate(request: Request, action: str, limit: int, window_s: int) -> None:
-    """Allow `limit` attempts per client IP per window. In memory, so it resets on restart.
+def client_ip(request: Request) -> str:
+    for name in CLIENT_IP_HEADERS:
+        value = (request.headers.get(name) or "").strip()
+        if value:
+            return value
+    return request.client.host if request.client else "unknown"
 
-    That's fine for one server process; several processes would each keep their own count.
+
+def _sweep(now: float) -> None:
+    for k in [k for k, hits in _hits.items() if not hits or now - hits[-1] > _windows.get(k[0], 0)]:
+        del _hits[k]
+
+
+def check_rate(request: Request, action: str, limit: int, window_s: int, key: str | None = None,
+               count: bool = True) -> None:
+    """Allow `limit` attempts per window, per client IP or per `key` (e.g. an email address).
+
+    With count=False it only checks; call count_hit() for attempts that should count (failed logins).
+    In memory, so it resets on restart. That's fine for one server process; several processes would
+    each keep their own count.
     """
-    ip = request.client.host if request.client else "unknown"
+    key = key or client_ip(request)
     now = time.monotonic()
     with _lock:
-        hits = _hits[(action, ip)]
+        _windows[action] = window_s
+        if len(_hits) > MAX_KEYS:
+            _sweep(now)
+        hits = _hits[(action, key)]
         while hits and now - hits[0] > window_s:
             hits.popleft()
         if len(hits) >= limit:
             raise HTTPException(429, "Too many attempts. Please wait a few minutes and try again.")
-        hits.append(now)
+        if count:
+            hits.append(now)
+
+
+def count_hit(action: str, key: str) -> None:
+    with _lock:
+        _hits[(action, key)].append(time.monotonic())
 
 
 def reset_rate_limits() -> None:

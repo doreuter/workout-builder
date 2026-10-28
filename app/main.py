@@ -23,7 +23,7 @@ from starlette.background import BackgroundTask
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import backup, config, db, garmin, llm, mailer, maintenance, offsite, readiness, security, zwift
-from .auth import current_user, hash_password, verify_password
+from .auth import current_user, hash_password, start_session, verify_password
 from .exporters import ExportError, safe_filename, to_fit, to_zwo
 from .importers import MAX_ZWO_BYTES, ImportError_, from_fit, from_zwo
 from .workout import ENABLED_SPORTS, WorkoutError, flatten, stats, validate
@@ -137,30 +137,39 @@ def register(body: Registration, request: Request):
         raise HTTPException(400, "Enter a valid email address.")
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters.")
-    # Admins can always sign up (that's how the first account gets created); everyone else
-    # needs an unused invite code when invites are required.
+    # When invites are required, everyone needs an unused invite code, except the very first admin:
+    # an address in ADMIN_EMAILS may sign up without one only while no admin account exists yet. Emails
+    # aren't verified, so otherwise anyone who knows a newly added admin address could claim it first.
+    admins = config.admin_emails()
     code = (body.invite_code or "").strip().upper() or None
-    if config.invites_required() and email not in config.admin_emails() and not code:
-        raise HTTPException(400, "You need an invite code to create an account.")
-    if not config.invites_required() or email in config.admin_emails():
+    first_admin = email in admins and not db.any_user_with_email(admins)
+    if not config.invites_required() or first_admin:
         code = None
+    elif not code:
+        raise HTTPException(400, "You need an invite code to create an account.")
     try:
         user_id = db.create_user_with_invite(email, hash_password(body.password), code)
     except LookupError:
         raise HTTPException(400, "That invite code is invalid or has already been used.")
     except sqlite3.IntegrityError:
         raise HTTPException(400, "An account with this email already exists.")
-    request.session["user_id"] = user_id
-    return _user_json(db.get_user(user_id))
+    user = db.get_user(user_id)
+    start_session(request, user)
+    return _user_json(user)
 
 
 @app.post("/api/login")
 def login(body: Credentials, request: Request):
+    email = body.email.strip().lower()
     security.check_rate(request, "login", limit=10, window_s=900)
-    user = db.get_user_by_email(body.email.strip().lower())
+    # Per account too, which no faked IP address gets around. Only wrong passwords count, but once
+    # there are too many, even the right one waits, so the answer can't confirm a guess.
+    security.check_rate(request, "login-email", limit=10, window_s=900, key=email, count=False)
+    user = db.get_user_by_email(email)
     if not user or not verify_password(body.password, user["password_hash"]):
+        security.count_hit("login-email", email)
         raise HTTPException(401, "Wrong email or password.")
-    request.session["user_id"] = user["id"]
+    start_session(request, user)
     return _user_json(user)
 
 
@@ -255,7 +264,9 @@ def request_password_reset(body: ResetRequestIn, request: Request):
     security.check_rate(request, "password-reset", limit=5, window_s=3600)
     if not mailer.available():
         raise HTTPException(503, "Password reset by email isn't available. Ask the person who invited you.")
-    user = db.get_user_by_email(body.email.strip().lower())
+    email = body.email.strip().lower()
+    security.check_rate(request, "password-reset-email", limit=3, window_s=3600, key=email)  # no inbox flooding
+    user = db.get_user_by_email(email)
     if user is not None:
         token = secrets.token_urlsafe(32)
         expires = (datetime.now(timezone.utc) + RESET_VALID_FOR).isoformat()

@@ -24,7 +24,7 @@ Tests: `.venv/bin/pytest`
 | `ANTHROPIC_API_KEY` | Required for the chat |
 | `CLAUDE_MODEL` | Model for the chat. Defaults to `claude-opus-5-5`; `claude-haiku-5-5` is much cheaper |
 | `APP_MODE` | `local` (default) or `hosted`. Hosted turns off everything that touches the Zwift folder, requires invites and HTTPS-only cookies |
-| `ADMIN_EMAILS` | Comma-separated. These accounts can sign up without an invite and create invite codes (in Settings) |
+| `ADMIN_EMAILS` | Comma-separated. These accounts create invite codes and see the admin page. The first admin can sign up without an invite; once an admin account exists, later admin addresses need an invite like everyone else (emails aren't verified, so anyone could otherwise claim a newly added address first) |
 | `REQUIRE_INVITE` | `1`/`0`; defaults to on when hosted |
 | `DAILY_MESSAGE_LIMIT` | Chat messages per user per day (default 30; admins are unlimited) |
 | `MONTHLY_BUDGET_USD` | The chat pauses for everyone once the month's estimated Claude cost reaches this (default 10; 0 = off) |
@@ -118,7 +118,7 @@ chat message ──► Claude calls the set_workout tool
 ```
 
 - **Workout format** (`app/workout.py`): steps of type warmup / cooldown / steady / ramp / rest / free, plus `repeat` blocks. Intensity is a fraction of FTP.
-- **Accounts** (`app/auth.py`, `app/db.py`): email and password (scrypt-hashed), signed session cookie, SQLite in `data/app.db`. Each user's profile holds cycling FTP, running threshold pace, and cycling and running threshold heart rate; Claude gets them with every message. With Garmin connected, **Fetch from Garmin** in Settings fills in FTP (from the latest ride with power) and both threshold heart rates (from Garmin's heart-rate zones). Garmin's Personal API doesn't include threshold pace, so that one is entered by hand.
+- **Accounts** (`app/auth.py`, `app/db.py`): email and password (scrypt-hashed), signed session cookie, SQLite in `data/app.db`. A password reset raises the user's session version, which signs out every other browser (the cookie can't be deleted from the server, but older versions are refused). Login is rate limited per IP address and per account (10 wrong passwords in 15 minutes; then even the right one waits), reset emails to 3 per address per hour. The client IP comes from Cloudflare's `CF-Connecting-IP` in front of Render, not from `X-Forwarded-For`, which clients can fake. Each user's profile holds cycling FTP, running threshold pace, and cycling and running threshold heart rate; Claude gets them with every message. With Garmin connected, **Fetch from Garmin** in Settings fills in FTP (from the latest ride with power) and both threshold heart rates (from Garmin's heart-rate zones). Garmin's Personal API doesn't include threshold pace, so that one is entered by hand.
 - **Chat history** is stored per workout and only ever appended to, so follow-up edits ("make the intervals longer") keep their context.
 
 ## Exports

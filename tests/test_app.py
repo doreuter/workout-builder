@@ -473,6 +473,93 @@ def test_login_rate_limit(client):
     assert r.status_code == 429
 
 
+def test_login_limit_holds_with_faked_ip_addresses(client):
+    """X-Forwarded-For is written by the client, so changing it mustn't reset the count."""
+    creds = {"email": "target@example.com", "password": "longenough"}
+    client.post("/api/register", json=creds)
+    client.post("/api/logout")
+    for i in range(10):
+        r = client.post("/api/login", json={**creds, "password": "wrong-wrong"}, headers={"X-Forwarded-For": f"10.0.0.{i}"})
+        assert r.status_code == 401
+    # Locked per account, and the right password waits too, so it can't confirm a guess.
+    r = client.post("/api/login", json=creds, headers={"X-Forwarded-For": "10.0.1.1"})
+    assert r.status_code == 429
+    # Other accounts are unaffected (from another address: this test client's own IP is used up).
+    other = client.post("/api/login", json={"email": "someone@example.com", "password": "x" * 8},
+                        headers={"CF-Connecting-IP": "198.51.100.4"})
+    assert other.status_code == 401
+
+
+def test_client_ip_comes_from_cloudflare_header(client):
+    main.security.reset_rate_limits()
+    for i in range(10):
+        client.post("/api/login", json={"email": f"n{i}@example.com", "password": "wrong-wrong"},
+                    headers={"CF-Connecting-IP": "203.0.113.7", "X-Forwarded-For": f"10.0.0.{i}"})
+    r = client.post("/api/login", json={"email": "fresh@example.com", "password": "wrong-wrong"},
+                    headers={"CF-Connecting-IP": "203.0.113.7"})
+    assert r.status_code == 429
+    other = client.post("/api/login", json={"email": "fresh@example.com", "password": "wrong-wrong"},
+                        headers={"CF-Connecting-IP": "203.0.113.8"})
+    assert other.status_code == 401
+
+
+def test_rate_limit_memory_is_swept(client, monkeypatch):
+    monkeypatch.setattr(main.security, "MAX_KEYS", 5)
+    monkeypatch.setattr(main.security.time, "monotonic", lambda: 1000.0)
+    for i in range(5):
+        main.security.count_hit("login-email", f"x{i}@example.com")
+    main.security._windows["login-email"] = 900
+    monkeypatch.setattr(main.security.time, "monotonic", lambda: 5000.0)  # all of them long expired
+    main.security.count_hit("login-email", "x5@example.com")
+    client.post("/api/login", json={"email": "y@example.com", "password": "wrong-wrong"})
+    assert len(main.security._hits) <= 3
+
+
+def test_password_reset_signs_out_other_sessions(client):
+    creds = {"email": "stolen@example.com", "password": "longenough"}
+    client.post("/api/register", json=creds)
+    other = TestClient(app)  # e.g. someone who got hold of the cookie
+    other.post("/api/login", json=creds)
+    assert other.get("/api/me").status_code == 200
+
+    user = main.db.get_user_by_email("stolen@example.com")
+    main.db.create_password_reset(user["id"], main._token_hash("tok-123"), "2999-01-01T00:00:00+00:00")
+    assert client.post("/api/password-reset/confirm", json={"token": "tok-123", "password": "brand-new-pass"}).status_code == 200
+    assert other.get("/api/me").status_code == 401
+    assert client.get("/api/me").status_code == 401
+    assert client.post("/api/login", json={**creds, "password": "brand-new-pass"}).status_code == 200
+    assert client.get("/api/me").status_code == 200
+
+
+def test_old_cookies_without_a_session_version_still_work(client):
+    """Sessions from before the version existed count as version 0, so a deploy signs no one out."""
+    client.post("/api/register", json={"email": "oldcookie@example.com", "password": "longenough"})
+    user = main.db.get_user_by_email("oldcookie@example.com")
+    assert user["session_version"] == 0
+    from itsdangerous import TimestampSigner
+    import base64
+    payload = base64.b64encode(json.dumps({"user_id": user["id"]}).encode())
+    cookie = TimestampSigner("test-secret").sign(payload).decode()
+    fresh = TestClient(app, cookies={"session": cookie})
+    assert fresh.get("/api/me").json()["email"] == "oldcookie@example.com"
+
+
+def test_later_admin_addresses_need_an_invite(client, monkeypatch):
+    """Emails aren't verified, so only the first admin may sign up without a code."""
+    monkeypatch.setenv("APP_MODE", "hosted")
+    monkeypatch.setenv("ADMIN_EMAILS", "first-admin@example.com")
+    assert client.post("/api/register", json={"email": "first-admin@example.com", "password": "longenough"}).status_code == 200
+    client.post("/api/logout")
+    monkeypatch.setenv("ADMIN_EMAILS", "first-admin@example.com, second-admin@example.com")
+    r = client.post("/api/register", json={"email": "second-admin@example.com", "password": "longenough"})
+    assert r.status_code == 400 and "invite" in r.json()["detail"]
+    client.post("/api/login", json={"email": "first-admin@example.com", "password": "longenough"})
+    code = client.post("/api/admin/invites", json={}).json()["code"]
+    client.post("/api/logout")
+    r = client.post("/api/register", json={"email": "second-admin@example.com", "password": "longenough", "invite_code": code})
+    assert r.status_code == 200 and r.json()["is_admin"] is True
+
+
 def test_security_headers_and_cross_site_block(client):
     r = client.get("/healthz")
     assert r.status_code == 200 and r.headers["x-frame-options"] == "DENY"

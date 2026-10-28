@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
     lthr_bike INTEGER,
     last_seen_at TEXT,  -- UTC, updated at most hourly
     training_rules TEXT,  -- the athlete's own rules for Claude, free text
+    session_version INTEGER NOT NULL DEFAULT 0,  -- raised by a password reset; older sessions stop working
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS workouts (
@@ -139,7 +140,7 @@ def init_db() -> None:
                 conn.execute(f"ALTER TABLE garmin_activities ADD COLUMN {name} {kind}")
         columns = {r["name"] for r in conn.execute("PRAGMA table_info(users)")}
         for name, kind in (("lthr_run", "INTEGER"), ("lthr_bike", "INTEGER"), ("last_seen_at", "TEXT"),
-                           ("training_rules", "TEXT")):
+                           ("training_rules", "TEXT"), ("session_version", "INTEGER NOT NULL DEFAULT 0")):
             if name not in columns:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {name} {kind}")
         columns = {r["name"] for r in conn.execute("PRAGMA table_info(workouts)")}
@@ -177,6 +178,15 @@ def get_user_by_email(email: str):
 def get_user(user_id: int):
     with connect() as conn:
         return conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+
+
+def any_user_with_email(emails) -> bool:
+    emails = list(emails)
+    if not emails:
+        return False
+    with connect() as conn:
+        marks = ", ".join("?" * len(emails))
+        return conn.execute(f"SELECT 1 FROM users WHERE email IN ({marks}) LIMIT 1", emails).fetchone() is not None
 
 
 def update_profile(user_id: int, ftp, threshold_pace_s_per_km, lthr_run=None, lthr_bike=None,
@@ -293,7 +303,9 @@ def use_password_reset(token_hash: str, now: str, password_hash: str) -> bool:
         if row is None:
             return False
         conn.execute("UPDATE password_resets SET used_at = ? WHERE token_hash = ?", (now, token_hash))
-        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, row["user_id"]))
+        # A new password signs out every existing session, in case someone else has one.
+        conn.execute("UPDATE users SET password_hash = ?, session_version = session_version + 1 WHERE id = ?",
+                     (password_hash, row["user_id"]))
         return True
 
 

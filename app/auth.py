@@ -27,9 +27,20 @@ def verify_password(password: str, stored: str) -> bool:
     return hmac.compare_digest(digest.hex(), digest_hex)
 
 
+def start_session(request: Request, user) -> None:
+    """Sign the browser in. The session version lets a password reset sign out every other session:
+    the cookie lives in the browser, so the server can't delete it, but it can stop accepting it."""
+    request.session.clear()
+    request.session["user_id"] = user["id"]
+    request.session["sv"] = user["session_version"]
+
+
 def current_user(request: Request):
     user_id = request.session.get("user_id")
     user = db.get_user(user_id) if user_id else None
+    if user is not None and request.session.get("sv", 0) != user["session_version"]:
+        request.session.clear()  # signed out by a password reset since this cookie was issued
+        user = None
     if user is None:
         raise HTTPException(status_code=401, detail="Not signed in")
     now = datetime.now(timezone.utc)
