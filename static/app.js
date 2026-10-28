@@ -832,30 +832,8 @@ function renderReadiness(d) {
     : r < 0.8 ? "Lighter than usual: you're fresh, but fitness may slip if it lasts."
     : "Load is in a sustainable range.";
 
-  renderRecovery(d.recovery);
-  renderTrends(d.trend);
+  renderTrends(d.trend, d.recovery);
   renderActivities(d.activities);
-}
-
-const RECOVERY_RING = 2 * Math.PI * 26;
-
-function renderRecovery(rec) {
-  $("#r-recovery").hidden = !rec;
-  if (!rec) return;
-  const left = rec.hours_left;
-  $("#r-rec-hours").textContent = left > 0 ? `${Math.round(left)} h left` : "Recovered";
-  const until = new Date(rec.until);
-  const when = until.toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" });
-  $("#r-rec-until").textContent = left > 0 ? `until ${when}` : `since ${when}`;
-  const arc = $("#r-rec-arc");
-  const share = rec.activity.hours > 0 ? Math.min(1, left / rec.activity.hours) : 0;
-  arc.setAttribute("stroke-dasharray", `${share * RECOVERY_RING} ${RECOVERY_RING}`);
-  arc.setAttribute("class", `r-rec-arc light-${rec.light}`);
-  const status = $("#r-rec-status");
-  status.replaceChildren(el("span", { class: `r-dot light-${rec.light}`, "aria-hidden": "true" }), rec.title);
-  $("#r-rec-advice").textContent = rec.advice;
-  const a = rec.activity;
-  $("#r-rec-from").textContent = `From ${a.name || a.type_key || "your activity"} on ${fmtDay(a.day)}: ${Math.round(a.hours)} h.`;
 }
 
 const TRENDS = [
@@ -866,21 +844,33 @@ const TRENDS = [
     format: (h) => `${Math.floor(h)} h ${String(Math.round((h % 1) * 60)).padStart(2, "0")} min` },
   { key: "body_battery", title: "Body Battery (overnight high)", unit: "", kind: "bar", min: 0, max: 100 },
   { key: "load", title: "Daily training load", unit: "", kind: "bar", min: 0 },
+  { key: "recovery_hours", title: "Recovery time (morning)", unit: " h", kind: "bar", min: 0, needs: "recovery",
+    format: (h) => `${Math.round(h)} h`,
+    latest: (rec) => `Now: ${rec.hours_left > 0 ? `${Math.round(rec.hours_left)} h left` : "recovered"} · ${rec.title.toLowerCase()}`
+      + ` (from ${rec.activity.name || "your activity"}, ${fmtDay(rec.activity.day, { day: "numeric", month: "short" })})`,
+    light: (rec) => rec.light },
 ];
 
-function renderTrends(trend) {
+function renderTrends(trend, recovery) {
   const box = $("#r-trends");
   box.replaceChildren();
-  for (const spec of TRENDS) box.append(trendChart(spec, trend));
+  for (const spec of TRENDS) {
+    if (spec.needs === "recovery" && !recovery) continue;  // only once Garmin's recovery time has been read
+    box.append(trendChart(spec, trend, recovery));
+  }
 }
 
-function trendChart(spec, trend) {
+function trendChart(spec, trend, recovery) {
   const card = el("article", { class: "card r-chart" });
   const values = trend.map((p) => p[spec.key]);
   const show = (v) => (spec.format ? spec.format(v) : `${v}${spec.unit}`);
   const latest = [...trend].reverse().find((p) => p[spec.key] != null);
   card.append(el("h3", {}, spec.title));
-  card.append(el("p", { class: "r-latest" }, latest
+  if (spec.latest) {
+    const line = el("p", { class: "r-latest" });
+    line.append(el("span", { class: `r-dot small light-${spec.light(recovery)}`, "aria-hidden": "true" }), spec.latest(recovery));
+    card.append(line);
+  } else card.append(el("p", { class: "r-latest" }, latest
     ? `Latest ${fmtDay(latest.day, { day: "numeric", month: "short" })}: ${show(latest[spec.key])}`
       + (spec.band && latest[spec.band[0]] ? ` · usual ${latest[spec.band[0]]}–${latest[spec.band[1]]}${spec.unit}` : "")
     : "No data yet"));
@@ -1005,7 +995,7 @@ function renderActivities(acts) {
     const link = el("a", { href: `https://connect.garmin.com/modern/activity/${a.activity_id}`, target: "_blank", rel: "noopener" },
       a.name || a.type_key || "Activity");
     const cells = [fmtDay(a.day), link, a.duration_s ? fmtDuration(Math.round(a.duration_s)) : "–", intensity,
-      n(a.training_load), effect, a.recovery_min ? `${Math.round(a.recovery_min / 60)} h` : "–"];
+      n(a.training_load), a.recovery_min ? `${Math.round(a.recovery_min / 60)} h` : "–", effect];
     cells.forEach((v) => {
       const td = el("td");
       td.append(v);

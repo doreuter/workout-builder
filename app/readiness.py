@@ -182,6 +182,7 @@ def score_day(row, history, loads: dict[str, float], rec: dict | None = None) ->
         "day": row["day"],
         "score": total,
         "capped": capped,
+        "recovery_hours": rec["hours_left"] if rec else None,
         "verdict": {"key": verdict[1], "title": verdict[2], "advice": verdict[3]} if verdict else None,
         "components": [
             {"key": k, "weight": WEIGHTS[k], **(v or {"score": None, "note": "no data"})} for k, v in parts.items()
@@ -314,6 +315,7 @@ def build(days, activities, today: date, now: datetime | None = None) -> dict:
             "sleep_score": r["sleep_score"] if r else None,
             "body_battery": r["bb_max"] if r else None,
             "load": round(loads.get(d, 0.0)),
+            "recovery_hours": s["recovery_hours"] if s else None,
         })
     return {
         "today": latest,
