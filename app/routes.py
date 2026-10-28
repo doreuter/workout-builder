@@ -19,7 +19,6 @@ from .workout import HARD_FROM, flatten
 ORS_BASE = "https://api.openrouteservice.org"
 PROFILE = "cycling-road"
 ASSUMED_KMH = 26.0  # to turn a workout's duration into a rough target distance
-SEEDS = (1, 2, 3)   # a few different loops to choose between
 MIN_KM, MAX_KM = 8, 120
 
 
@@ -193,34 +192,34 @@ def _summary(prof: dict, dem: dict) -> str:
     return f"{base} — steady all the way round."
 
 
-def suggest_route(workout: dict, pace: int | None, lat: float, lon: float,
-                  distance_km: float | None = None, seeds=SEEDS) -> dict:
-    """Pick the best-fitting round-trip loop near (lat, lon) for the workout. Raises RouteError."""
+SPREAD = (0.5, 0.75, 1.0, 1.3)  # ORS honours round-trip length only loosely, so ask across a range
+
+
+def suggest_routes(workout: dict, pace: int | None, lat: float, lon: float,
+                   distance_km: float | None = None) -> dict:
+    """A few distinct round-trip options near (lat, lon), best fit first. Raises RouteError if none.
+
+    ORS doesn't reliably hit a requested length, so rather than chase one number we ask for a spread of
+    lengths, keep the distinct loops that come back, and let the rider pick — each shown with its real
+    distance. The list is ranked by fit (distance first), so the closest to the target leads.
+    """
     target_m = round(distance_km * 1000) if distance_km else target_distance_m(workout, pace)
     dem = demand(workout, pace)
-    # ORS round-trips overshoot the requested length by an amount that varies with the start, so steer:
-    # measure each loop's real length and correct the next request toward the target (closed loop).
-    requested = target_m
-    best, errors = None, []
-    for seed in seeds:
+    found, errors = [], []
+    for i, frac in enumerate(SPREAD):
+        requested = round(min(MAX_KM * 1000, max(MIN_KM * 1000, target_m * frac)))
         try:
-            geo = _directions(lat, lon, requested, seed)
-            feature = geo["features"][0]
+            feature = _directions(lat, lon, requested, i + 1)["features"][0]
         except (RouteError, KeyError, IndexError) as e:
             errors.append(str(e))
             continue
         prof = profile(feature)
-        cand = {**prof, "score": score(prof, dem, target_m), "seed": seed}
-        if best is None or cand["score"] > best["score"]:
-            best = cand
-        actual = prof["distance_m"] or requested
-        # Correct toward the target, but keep each request within half-to-1.5× of it so one odd
-        # loop from ORS can't send the next request (and the whole set) wildly off.
-        lo = max(MIN_KM * 1000, target_m * 0.5)
-        hi = min(MAX_KM * 1000, target_m * 1.5)
-        requested = round(min(hi, max(lo, requested * target_m / actual)))
-    if best is None:
+        found.append({**prof, "score": score(prof, dem, target_m), "summary": _summary(prof, dem)})
+    if not found:
         raise RouteError(errors[0] if errors else "No route could be generated near there.")
-    best["summary"] = _summary(best, dem)
-    best["target_km"] = round(target_m / 1000, 1)
-    return best
+    # Keep one loop per ~2 km distance band (the highest-scoring), so near-identical options don't repeat.
+    best_by_band = {}
+    for o in sorted(found, key=lambda o: -o["score"]):
+        best_by_band.setdefault(round(o["distance_m"] / 2000), o)
+    options = sorted(best_by_band.values(), key=lambda o: -o["score"])[:3]
+    return {"target_km": round(target_m / 1000, 1), "options": options}

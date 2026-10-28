@@ -790,7 +790,7 @@ def suggest_route(workout_id: int, body: RouteIn, request: Request, user=Depends
     # Protect the shared ORS key: cap per user per day, on top of ORS's own free-tier limits.
     security.check_rate(request, "route", limit=20, window_s=86400, key=f"user:{user['id']}")
     try:
-        return routes.suggest_route(workout, user["threshold_pace_s_per_km"], body.lat, body.lon, body.distance_km)
+        return routes.suggest_routes(workout, user["threshold_pace_s_per_km"], body.lat, body.lon, body.distance_km)
     except routes.RouteError as e:
         raise HTTPException(502, str(e))
 

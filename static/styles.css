@@ -499,3 +499,8 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 .route-attrib { margin: .3rem 0 0; }
 .tiny { font-size: .68rem; }
 .leaflet-container { font: inherit; }
+
+/* Route options: pick from a few loops of different lengths. */
+.route-options { display: flex; flex-wrap: wrap; gap: .4rem; margin: .6rem 0 0; }
+.route-opt { padding: .35rem .7rem; font-size: .82rem; border: 1px solid var(--border); border-radius: 999px; background: transparent; cursor: pointer; }
+.route-opt.selected { border-color: var(--accent); color: var(--text); background: var(--surface-2, rgba(127,127,127,.12)); }

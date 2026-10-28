@@ -711,26 +711,26 @@ def test_route_scoring_prefers_terrain_that_matches():
     assert routes.score(flat, crit, target) > routes.score(hilly, crit, target)
 
 
-def test_suggest_route_picks_the_best_loop(monkeypatch):
+def test_suggest_routes_returns_distinct_options_closest_first(monkeypatch):
     from app import routes
-    loops = {1: HILLY, 2: FLAT, 3: FLAT}
-    monkeypatch.setattr(routes, "_directions", lambda lat, lon, length, seed: loops[seed])
-    best = routes.suggest_route(THRESHOLD, 270, 47.05, 8.55, distance_km=4, seeds=(1, 2, 3))
-    assert best["seed"] == 1 and "climb" in best["summary"]
-    assert best["path"] and best["distance_m"] > 0 and "score" in best
+    # ORS honours length here, so the spread yields loops of different sizes.
+    monkeypatch.setattr(routes, "_directions",
+                        lambda lat, lon, length, seed: _ors([500] * max(2, round(length / 100))))
+    r = routes.suggest_routes(THRESHOLD, 270, 47.05, 8.55, distance_km=40)
+    opts = r["options"]
+    assert len(opts) >= 2
+    dists = [round(o["distance_m"] / 1000) for o in opts]
+    assert len(set(dists)) == len(dists)             # distinct lengths, not the same loop repeated
+    assert abs(opts[0]["distance_m"] - 40000) == min(abs(o["distance_m"] - 40000) for o in opts)  # closest leads
+    assert all("path" in o and "summary" in o for o in opts)
 
 
-def test_route_distance_is_steered_toward_target(monkeypatch):
+def test_suggest_routes_collapses_to_one_when_ors_ignores_length(monkeypatch):
     from app import routes
-    reqs = []
-    def fake(lat, lon, length, seed):  # simulate ORS overshooting the requested length ~1.6x
-        reqs.append(length)
-        return _ors([500] * max(2, round(length * 1.6 / 100)))
-    monkeypatch.setattr(routes, "_directions", fake)
-    best = routes.suggest_route(THRESHOLD, 270, 47.05, 8.55, distance_km=40, seeds=(1, 2, 3))
-    assert reqs[0] == 40000 and reqs[1] < reqs[0]  # first asks for the target, then steers down
-    # The chosen loop lands closer to 40 km than ORS's first (overshooting) loop did.
-    assert abs(best["distance_m"] - 40000) < abs(reqs[0] * 1.6 - 40000)
+    # ORS hands back ~55 km whatever we ask: the rider sees one honest option, not fake variety.
+    monkeypatch.setattr(routes, "_directions", lambda lat, lon, length, seed: _ors([500] * 551))
+    opts = routes.suggest_routes(THRESHOLD, 270, 47.05, 8.55, distance_km=30)["options"]
+    assert len(opts) == 1 and 53 <= opts[0]["distance_m"] / 1000 <= 57
 
 
 def test_route_distance_beats_terrain():
@@ -763,7 +763,9 @@ def test_route_endpoint(client, monkeypatch):
     monkeypatch.setenv("ORS_API_KEY", "test-key")
     monkeypatch.setattr(routes, "_directions", lambda lat, lon, length, seed: HILLY)
     r = client.post(f"/api/workouts/{wid}/route", json={"lat": 47.05, "lon": 8.55})
-    assert r.status_code == 200 and "climb" in r.json()["summary"] and r.json()["path"]
+    assert r.status_code == 200
+    opts = r.json()["options"]
+    assert opts and "climb" in opts[0]["summary"] and opts[0]["path"]
     # Cycling only for now.
     uid = main.db.get_user_by_email("loop@example.com")["id"]
     rwid = client.post("/api/workouts").json()["id"]

@@ -1377,6 +1377,7 @@ function renderRoutePanel(workout) {
   if (panel.hidden) return;
   $("#route-result").hidden = true;
   $("#route-error").hidden = true;
+  $("#route-options").hidden = true;
   const saved = routeStartSaved();
   if (saved && !$("#route-start").value) $("#route-start").value = saved;
 }
@@ -1432,6 +1433,8 @@ $("#route-locate").addEventListener("click", () => {
 });
 
 function showRouteError(msg) {
+  $("#route-options").hidden = true;
+  $("#route-result").hidden = true;
   const e = $("#route-error");
   e.textContent = msg;
   e.hidden = false;
@@ -1442,6 +1445,7 @@ $("#route-go").addEventListener("click", async () => {
   $("#route-error").hidden = true;
   $("#route-result").hidden = true;
   if (!start) return showRouteError("Set a start point: click the map, use your location, or type \"lat, lon\".");
+  $("#route-options").hidden = true;
   const kmField = $("#route-km").value;
   const body = { lat: start.lat, lon: start.lon };
   if (kmField) body.distance_km = Number(kmField);
@@ -1449,13 +1453,37 @@ $("#route-go").addEventListener("click", async () => {
   btn.disabled = true; btn.textContent = "Finding…";
   try {
     const r = await api(`/api/workouts/${state.view.id}/route`, { method: "POST", body });
-    drawRoute(r);
+    renderOptions(r.options || []);
   } catch (err) {
     showRouteError(err.message);
   } finally {
     btn.disabled = false; btn.textContent = "Suggest a route";
   }
 });
+
+function renderOptions(options) {
+  const box = $("#route-options");
+  box.replaceChildren();
+  if (!options.length) { box.hidden = true; return; }
+  // ORS hands back only loops of a certain size near some places, so there may be just one option.
+  if (options.length > 1) {
+    for (const [i, o] of options.entries()) {
+      const b = el("button", { type: "button", class: "route-opt" }, `${(o.distance_m / 1000).toFixed(0)} km · ${o.ascent_m} m`);
+      b.addEventListener("click", () => selectOption(options, i));
+      box.append(b);
+    }
+    box.hidden = false;
+  } else {
+    box.hidden = true;
+  }
+  selectOption(options, 0);
+}
+
+function selectOption(options, i) {
+  const o = options[i];
+  $("#route-options").querySelectorAll(".route-opt").forEach((b, j) => b.classList.toggle("selected", j === i));
+  drawRoute(o);
+}
 
 function drawRoute(r) {
   if (state.routeMap && r.path?.length) {
@@ -1473,7 +1501,7 @@ function drawRoute(r) {
   res.replaceChildren(
     el("strong", {}, `${(r.distance_m / 1000).toFixed(1)} km · ${r.ascent_m} m up`),
     document.createTextNode(" — " + r.summary + " "),
-    Object.assign(el("a", { href: link, target: "_blank", rel: "noopener" }, "open the start in a map"), {}),
+    el("a", { href: link, target: "_blank", rel: "noopener" }, "open the start in a map"),
   );
   res.hidden = false;
 }
