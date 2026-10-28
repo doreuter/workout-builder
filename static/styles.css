@@ -485,3 +485,17 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
   color: var(--muted);
 }
 .terrain strong { color: var(--text); }
+
+/* Outdoor route suggestion panel (workout view). */
+.route-suggest { margin: 0 0 1rem; }
+.route-suggest > summary { cursor: pointer; font-weight: 600; }
+.route-controls { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; margin: .6rem 0; }
+.route-field { display: grid; gap: .2rem; font-size: .8rem; color: var(--muted); }
+.route-field input { width: 11rem; }
+.route-field input[type="number"] { width: 5rem; }
+.route-map { height: 280px; border-radius: 8px; overflow: hidden; background: var(--surface-2, rgba(127,127,127,.1)); }
+.route-result { margin: .6rem 0 .2rem; padding: .6rem .8rem; border-left: 3px solid var(--accent); background: var(--surface-2, rgba(127,127,127,.08)); border-radius: 0 6px 6px 0; }
+.route-result strong { color: var(--text); }
+.route-attrib { margin: .3rem 0 0; }
+.tiny { font-size: .68rem; }
+.leaflet-container { font: inherit; }

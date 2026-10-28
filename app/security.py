@@ -74,10 +74,10 @@ SECURITY_HEADERS = {
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "same-origin",
     # Everything the app loads comes from its own origin; no inline scripts; forms only post to us.
-    "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; object-src 'none'; "
+    "Content-Security-Policy": "default-src 'self'; img-src 'self' data: https://*.tile.openstreetmap.org; object-src 'none'; "
     "base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
     # The app needs none of these device features; turn them off everywhere.
-    "Permissions-Policy": "geolocation=(), microphone=(), camera=(), payment=(), usb=()",
+    "Permissions-Policy": "geolocation=(self), microphone=(), camera=(), payment=(), usb=()",
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Resource-Policy": "same-origin",
 }

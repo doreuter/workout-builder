@@ -10,6 +10,7 @@ const state = {
   registering: false,
   zwiftAvailable: false, // the server can reach the Zwift folder (app running on your own computer)
   browserZwift: false,   // this browser can save into a Zwift folder the user picked
+  routesAvailable: false, // the server has an OpenRouteService key, so route suggestions work
 };
 
 const EXAMPLES = [
@@ -242,6 +243,7 @@ async function startApp() {
   showView("workouts");
   const integrations = await api("/api/integrations").catch(() => ({}));
   state.zwiftAvailable = !!integrations.zwift?.available;
+  state.routesAvailable = !!integrations.routes;
   state.device = deviceKind();
   state.browserZwift = !state.zwiftAvailable && ZwiftFolder.supported && !["phone", "tablet"].includes(state.device);
   if (state.browserZwift) await ZwiftFolder.load();
@@ -476,6 +478,7 @@ function renderWorkout() {
   renderChart(workout.sport, segments, stats.duration_s);
   renderLegend(workout.sport, segments);
   renderTerrain(state.view.terrain);
+  renderRoutePanel(workout);
   renderSteps(workout);
 
   for (const fmt of ["zwo", "fit"]) {
@@ -1363,6 +1366,107 @@ function renderActivities(acts) {
     });
     body.append(tr);
   }
+}
+
+// --- outdoor route suggestion (OpenRouteService) ---------------------------------------
+
+function renderRoutePanel(workout) {
+  const panel = $("#route-suggest");
+  panel.hidden = !(state.routesAvailable && workout.sport === "cycling");
+  if (panel.hidden) return;
+  $("#route-result").hidden = true;
+  $("#route-error").hidden = true;
+  const saved = routeStartSaved();
+  if (saved && !$("#route-start").value) $("#route-start").value = saved;
+}
+
+function routeStartSaved() {
+  try { return localStorage.getItem("vibegrind.routeStart") || ""; } catch { return ""; }
+}
+
+function parseStart(text) {
+  const m = (text || "").split(",").map((x) => Number(x.trim()));
+  if (m.length === 2 && Number.isFinite(m[0]) && Number.isFinite(m[1]) &&
+      Math.abs(m[0]) <= 90 && Math.abs(m[1]) <= 180) return { lat: m[0], lon: m[1] };
+  return null;
+}
+
+function setRouteStart(lat, lon) {
+  const text = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+  $("#route-start").value = text;
+  try { localStorage.setItem("vibegrind.routeStart", text); } catch {}
+  if (state.routeMap) {
+    if (!state.routeMarker) state.routeMarker = L.circleMarker([lat, lon], { radius: 7, color: "#e8622c", weight: 3, fillOpacity: .5 }).addTo(state.routeMap);
+    else state.routeMarker.setLatLng([lat, lon]);
+  }
+}
+
+function initRouteMap() {
+  if (state.routeMap || !window.L) return;
+  const start = parseStart($("#route-start").value) || { lat: 46.8, lon: 8.23 };
+  const map = L.map("route-map", { scrollWheelZoom: false }).setView([start.lat, start.lon], parseStart($("#route-start").value) ? 12 : 7);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 17, attribution: "© OpenStreetMap" }).addTo(map);
+  map.on("click", (e) => setRouteStart(e.latlng.lat, e.latlng.lng));
+  state.routeMap = map;
+  if (parseStart($("#route-start").value)) setRouteStart(start.lat, start.lon);
+  setTimeout(() => map.invalidateSize(), 0);
+}
+
+$("#route-suggest").addEventListener("toggle", (e) => { if (e.target.open) initRouteMap(); });
+
+$("#route-locate").addEventListener("click", () => {
+  if (!navigator.geolocation) return;
+  $("#route-locate").textContent = "Locating…";
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      setRouteStart(pos.coords.latitude, pos.coords.longitude);
+      if (state.routeMap) state.routeMap.setView([pos.coords.latitude, pos.coords.longitude], 12);
+      $("#route-locate").textContent = "Use my location";
+    },
+    () => { $("#route-locate").textContent = "Use my location"; showRouteError("Couldn't get your location. Click the map or type coordinates instead."); },
+  );
+});
+
+function showRouteError(msg) {
+  const e = $("#route-error");
+  e.textContent = msg;
+  e.hidden = false;
+}
+
+$("#route-go").addEventListener("click", async () => {
+  const start = parseStart($("#route-start").value);
+  $("#route-error").hidden = true;
+  $("#route-result").hidden = true;
+  if (!start) return showRouteError("Set a start point: click the map, use your location, or type \"lat, lon\".");
+  const kmField = $("#route-km").value;
+  const body = { lat: start.lat, lon: start.lon };
+  if (kmField) body.distance_km = Number(kmField);
+  const btn = $("#route-go");
+  btn.disabled = true; btn.textContent = "Finding…";
+  try {
+    const r = await api(`/api/workouts/${state.view.id}/route`, { method: "POST", body });
+    drawRoute(r);
+  } catch (err) {
+    showRouteError(err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = "Suggest a route";
+  }
+});
+
+function drawRoute(r) {
+  if (state.routeMap && r.path?.length) {
+    if (state.routeLine) state.routeLine.remove();
+    state.routeLine = L.polyline(r.path, { color: "#e8622c", weight: 4 }).addTo(state.routeMap);
+    state.routeMap.fitBounds(state.routeLine.getBounds(), { padding: [20, 20] });
+  }
+  const res = $("#route-result");
+  const link = `https://www.openstreetmap.org/?mlat=${r.path?.[0]?.[0]}&mlon=${r.path?.[0]?.[1]}#map=14/${r.path?.[0]?.[0]}/${r.path?.[0]?.[1]}`;
+  res.replaceChildren(
+    el("strong", {}, `${(r.distance_m / 1000).toFixed(1)} km · ${r.ascent_m} m up`),
+    document.createTextNode(" — " + r.summary + " "),
+    Object.assign(el("a", { href: link, target: "_blank", rel: "noopener" }, "open the start in a map"), {}),
+  );
+  res.hidden = false;
 }
 
 // --- settings --------------------------------------------------------------------------

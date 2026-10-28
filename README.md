@@ -159,7 +159,7 @@ the app shows device-specific instructions for the downloaded files instead.
 
 ## Outdoor route suggestions (OpenRouteService)
 
-Still being built. Given a cycling workout and a start point, the app asks **OpenRouteService** for a few
+Given a cycling workout and a start point, the app asks **OpenRouteService** for a few
 round-trip loops (`cycling-road`, with elevation), reads each one's climb profile (`app/routes.py`), scores
 it against the session's main demand (a sustained climb for threshold/VO2 efforts, flat for short reps,
 rolling for endurance) and returns the best as a **candidate to check** — never a route it certifies.
@@ -167,8 +167,9 @@ rolling for endurance) and returns the best as a **candidate to check** — neve
 - `POST /api/workouts/{id}/route` with `{lat, lon, distance_km?}` (cycling only; per-user daily cap).
 - Set `ORS_API_KEY` (free key from openrouteservice.org, EU-hosted) to turn it on; without it the feature
   is off and `/api/integrations` reports `routes: false`.
-- Start location is personal data and goes only to ORS — the privacy policy and a map UI land with the next
-  step. OSM-backed services are blocked on the owner's network, so this is tested against recorded ORS
+- The workout view has a **Find a route outside** panel (Leaflet map, self-hosted; click the map or use your
+  location to set a start) that draws the suggested loop. Start location is personal data and goes only to ORS
+  (privacy policy updated). OSM-backed services are blocked on the owner's network, so this is tested against recorded ORS
   responses and exercised live on Render. A round-trip loop matches terrain and distance, not the exact
   interval structure, so it reads e.g. "do the efforts on the 2 km climb at ~6%".
 

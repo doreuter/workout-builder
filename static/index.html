@@ -7,6 +7,7 @@
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/fonts.css">
   <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
 </head>
 <body>
   <!-- Sign in / register -->
@@ -207,6 +208,20 @@
           <p id="export-hint" class="muted small hint" hidden></p>
           <p id="export-error" class="error small" hidden></p>
           <p id="send-status" class="success small" hidden></p>
+          <details class="route-suggest" id="route-suggest" hidden>
+            <summary>Find a route outside</summary>
+            <p class="muted small">Pick a start point and I'll suggest a loop that fits this ride. Always check it's open, legal and safe for you before you go.</p>
+            <div class="route-controls">
+              <button type="button" class="btn" id="route-locate">Use my location</button>
+              <label class="route-field">Start <input id="route-start" placeholder="click the map, or lat, lon" inputmode="decimal"></label>
+              <label class="route-field">Distance <input id="route-km" type="number" min="5" max="120" placeholder="auto"> km</label>
+              <button type="button" class="primary" id="route-go">Suggest a route</button>
+            </div>
+            <div id="route-map" class="route-map"></div>
+            <p id="route-result" class="route-result" hidden></p>
+            <p id="route-error" class="error small" hidden></p>
+            <p class="muted tiny route-attrib">Routing &amp; elevation © <a href="https://openrouteservice.org/" target="_blank" rel="noopener">OpenRouteService</a> · map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors</p>
+          </details>
           <details class="steps">
             <summary>Steps</summary>
             <ol id="step-list"></ol>
@@ -331,6 +346,7 @@
     </div>
   </dialog>
 
+  <script src="/static/vendor/leaflet/leaflet.js"></script>
   <script src="/static/zwift-folder.js"></script>
   <script src="/static/app.js"></script>
 </body>
