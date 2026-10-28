@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 import anthropic
 
-from .workout import WORKOUT_SCHEMA, WorkoutError, guideline_problems, summary, terrain_brief, validate
+from .workout import WORKOUT_SCHEMA, WorkoutError, guideline_problems, summary, validate
 
 DEFAULT_MODEL = "claude-opus-5-5"
 # Models that support the server-side refusal fallback ("fallbacks": "default").
@@ -239,10 +239,6 @@ def chat(user, history: list, current: dict | None, user_text: str, client: anth
         context += "\n\n" + readiness_text
     if current is not None and current != _last_set_workout(history):
         context += "\n\nCurrent workout:\n" + json.dumps(current)
-    brief = terrain_brief(current, user["threshold_pace_s_per_km"]) if current else None
-    if brief:
-        context += ("\n\nOutdoor note for this workout (share it if the athlete asks where to ride or run "
-                    "it, and keep it in mind when shaping the session): " + brief["summary"])
     messages.append({"role": "user", "content": [
         {"type": "text", "text": context},
         {"type": "text", "text": user_text},

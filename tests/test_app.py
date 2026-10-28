@@ -560,52 +560,6 @@ def test_later_admin_addresses_need_an_invite(client, monkeypatch):
     assert r.status_code == 200 and r.json()["is_admin"] is True
 
 
-def test_terrain_brief_matches_the_workout_shape():
-    from app.workout import terrain_brief
-    # Long threshold efforts on the bike -> a climb.
-    climb = terrain_brief(THRESHOLD)
-    assert climb["terrain"] == "climb" and "climb" in climb["summary"]
-    # Short, sharp reps -> flat / rolling.
-    vo2 = {"name": "VO2", "sport": "cycling", "steps": [
-        {"type": "warmup", "duration_s": 900, "intensity": 0.5, "intensity_end": 0.8},
-        {"type": "repeat", "count": 6, "steps": [
-            {"type": "steady", "duration_s": 60, "intensity": 1.15},
-            {"type": "rest", "duration_s": 120, "intensity": 0.5}]},
-        {"type": "cooldown", "duration_s": 600, "intensity": 0.6, "intensity_end": 0.4}]}
-    assert terrain_brief(vo2)["terrain"] == "flat / rolling"
-    # An easy ride -> any route; mentions keeping it continuous.
-    easy = {"name": "Z2", "sport": "cycling", "steps": [
-        {"type": "steady", "duration_s": 3600, "intensity": 0.6}]}
-    assert terrain_brief(easy)["terrain"] == "any" and "continuous" in terrain_brief(easy)["summary"]
-    # Running pace reps -> track / flat; a long tempo -> steady path.
-    reps = {"name": "400s", "sport": "running", "steps": [
-        {"type": "warmup", "duration_s": 600, "intensity": 0.75, "intensity_end": 0.85},
-        {"type": "repeat", "count": 6, "steps": [
-            {"type": "steady", "distance_m": 400, "intensity": 1.08},
-            {"type": "rest", "duration_s": 120, "intensity": 0.6}]}]}
-    assert terrain_brief(reps, 270)["terrain"] == "track / flat"
-    tempo = {"name": "Tempo", "sport": "running", "steps": [
-        {"type": "warmup", "duration_s": 600, "intensity": 0.7, "intensity_end": 0.85},
-        {"type": "steady", "duration_s": 1500, "intensity": 0.95},
-        {"type": "cooldown", "duration_s": 600, "intensity": 0.6}]}
-    assert terrain_brief(tempo, 270)["terrain"] == "steady path"
-    # Nothing to say for an empty workout.
-    assert terrain_brief(None) is None
-    assert terrain_brief({"sport": "cycling", "steps": []}) is None
-
-
-def test_terrain_brief_rides_along_with_the_workout_and_the_chat(client):
-    client.post("/api/register", json={"email": "route@example.com", "password": "longenough"})
-    wid = client.post("/api/workouts").json()["id"]
-    view = client.post(f"/api/workouts/{wid}/chat", json={"message": "4x8 threshold"}).json()
-    assert view["terrain"] and view["terrain"]["terrain"] == "climb"
-    # A follow-up turn carries the outdoor note into Claude's context.
-    client.post(f"/api/workouts/{wid}/chat", json={"message": "where should I ride this?"})
-    sent = "\n".join(b["text"] for c in client.fake.calls for m in c["messages"]
-                     if isinstance(m["content"], list) for b in m["content"] if b.get("type") == "text")
-    assert "Outdoor note for this workout" in sent
-
-
 ENDURANCE_RIDE = {
     "name": "Base ride",
     "sport": "cycling",

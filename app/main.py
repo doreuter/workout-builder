@@ -26,7 +26,7 @@ from . import backup, config, db, garmin, llm, mailer, maintenance, offsite, rea
 from .auth import current_user, hash_password, start_session, verify_password
 from .exporters import ExportError, safe_filename, to_fit, to_zwo
 from .importers import MAX_ZWO_BYTES, ImportError_, from_fit, from_zwo
-from .workout import ENABLED_SPORTS, WorkoutError, flatten, stats, terrain_brief, validate
+from .workout import ENABLED_SPORTS, WorkoutError, flatten, stats, validate
 
 logger = logging.getLogger("vibegrind")
 ROOT = Path(__file__).resolve().parent.parent
@@ -466,7 +466,6 @@ def _workout_view(user, row) -> dict:
         "transcript": llm.visible_transcript(history),
         "source_filename": row["source_filename"],
         "planned_date": row["planned_date"],
-        "terrain": terrain_brief(workout, pace) if workout else None,
     }
 
 
