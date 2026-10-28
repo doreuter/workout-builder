@@ -155,7 +155,7 @@
       <section class="chat card">
         <div id="messages" class="messages"></div>
         <form id="chat-form" class="chat-form">
-          <textarea id="chat-input" rows="2" placeholder="e.g. 15 min warm-up, 4×8 min at threshold with 3 min easy, cool down" required></textarea>
+          <textarea id="chat-input" rows="2" placeholder="e.g. 4×8 min at threshold with 3 min easy, or 6×800 m at 5k pace" required></textarea>
           <button type="submit" class="primary" id="send-btn">Send</button>
         </form>
         <p id="quota" class="quota muted small" hidden></p>
@@ -220,6 +220,10 @@
         <label>Running threshold pace (min/km) <input name="pace" inputmode="numeric" pattern="\d{1,2}:\d{2}" placeholder="e.g. 4:45"></label>
         <label>Running threshold HR (bpm) <input name="lthr_run" type="number" min="80" max="230" placeholder="e.g. 168"></label>
       </div>
+      <label>Your training rules
+        <textarea name="training_rules" rows="3" maxlength="1000" placeholder="e.g. Weekday sessions max 75 min. Long ride on Sunday. No running two days in a row."></textarea>
+      </label>
+      <p class="muted small">Claude follows these in both chats, on top of the app's own guidelines (a warm-up before hard work, a cool-down after).</p>
       <p id="settings-error" class="error small" hidden></p>
       <div class="row">
         <button value="cancel" formnovalidate>Cancel</button>

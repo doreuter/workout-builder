@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 import anthropic
 
-from .workout import WORKOUT_SCHEMA, WorkoutError, summary, validate
+from .workout import WORKOUT_SCHEMA, WorkoutError, guideline_problems, summary, validate
 
 DEFAULT_MODEL = "claude-opus-5-5"
 # Models that support the server-side refusal fallback ("fallbacks": "default").
@@ -26,19 +26,44 @@ def model() -> str:
     """CLAUDE_MODEL in .env overrides the default, e.g. claude-haiku-5-5 for cheap testing."""
     return os.environ.get("CLAUDE_MODEL") or DEFAULT_MODEL
 
-SYSTEM_PROMPT = """You are a cycling coach inside a workout-builder app. The user describes a structured \
-indoor or outdoor ride in plain language; you turn it into the app's workout format by calling the \
+GUIDELINES = """Training guidelines (the app checks the first two; follow all unless the athlete asks otherwise):
+- Any session with work at sweet spot or harder (cycling from 88% FTP, running from 92% of threshold speed) \
+starts with a warm-up of at least 10 minutes that builds gradually from easy; before VO2 max or harder \
+work make it 15 minutes and add two or three short openers.
+- End such sessions with at least 5 minutes easy.
+- Recoveries: at least as long as the work for VO2 max and anaerobic intervals, at least a quarter of it \
+for threshold and sweet spot.
+- Typical totals of work: VO2 max 12-24 min, threshold 20-60 min, sweet spot 30-90 min. Stay within them \
+unless asked.
+- Running: keep easy runs truly easy (below 80% of threshold speed), hard run sessions shorter than \
+comparable rides, and no more than one long run a week.
+- If the athlete explicitly wants to skip a warm-up or cool-down (e.g. "just the intervals, I've warmed \
+up"), set `guideline_exception` to their reason; otherwise never set it.
+- The athlete's own training rules, when the context lists them, come first."""
+
+GUIDELINE_EXCEPTION = {
+    "type": "string",
+    "description": "Only when the athlete explicitly asked to skip a warm-up or cool-down: their reason.",
+}
+
+SYSTEM_PROMPT = """You are a cycling and running coach inside a workout-builder app. The user describes a \
+structured ride or run in plain language; you turn it into the app's workout format by calling the \
 `set_workout` tool, and you also edit the current workout when they ask for changes.
 
-The app supports cycling only for now. If the user asks for a running (or other non-cycling) workout, \
-don't call the tool: say briefly that only cycling is supported at the moment.
+The app supports cycling and running. Set `sport` to match; if the user doesn't say, assume the sport of \
+the current workout, else cycling. For other sports (swimming, rowing, strength) don't call the tool: say \
+briefly that only cycling and running are supported.
 
 How the format works:
-- Intensity is a fraction of FTP (0.95 = 95% FTP). The tool always takes fractions, even if the user \
-gives watts; convert using the athlete profile below.
+- Cycling intensity is a fraction of FTP (0.95 = 95% FTP). The tool always takes fractions, even if the \
+user gives watts; convert using the athlete profile below.
+- Running intensity is a fraction of threshold *speed* (1.0 = threshold pace, 1.05 = 5% faster, 0.8 = \
+easy). Convert paces with the athlete's threshold pace: fraction = threshold pace / target pace (both in \
+seconds per km). Without a threshold pace, use typical fractions and say so.
 - Step types: warmup / cooldown (ramp from intensity to intensity_end), steady, ramp, rest (easy \
 recovery at a set intensity), free (no target). Use a `repeat` block for intervals.
-- Each step has duration_s (do not use distance_m).
+- Each step has duration_s. Running steps may use distance_m instead (e.g. 400 m repeats); cycling steps \
+never do.
 - Give every interval step a short label like "VO2 max" or "Threshold".
 - Workouts loaded from Zwift may have `text_events` (on-screen coaching messages) and `tags`. Keep \
 them when you edit the workout, adjusting offsets if a step gets shorter, unless the user asks otherwise.
@@ -63,8 +88,12 @@ easier alternative. Don't lecture.
 recite the whole summary.
 - Without a readiness summary, don't guess about their recovery.
 
-Zone guide (% FTP): recovery <55, endurance 56-75, tempo 76-90, sweet spot 88-94, threshold 95-105, \
-VO2 max 106-120, anaerobic >120.
+Zone guide, cycling (% FTP): recovery <55, endurance 56-75, tempo 76-90, sweet spot 88-94, threshold \
+95-105, VO2 max 106-120, anaerobic >120.
+Zone guide, running (% of threshold speed): recovery <80, easy 80-88, tempo 88-95, threshold 95-102, \
+interval 102-110, repetition >110.
+
+""" + GUIDELINES + """
 
 Whenever the user asks for a workout or a change, call `set_workout` with the COMPLETE workout (it \
 replaces the current one). If a detail is missing, choose a sensible default and say what you chose; ask \
@@ -72,15 +101,17 @@ only when the request is truly ambiguous. After the tool succeeds, \
 reply in 1-3 short sentences: what the workout is and any assumptions. Do not list every step; the app \
 shows a chart. If the tool returns an error, fix the workout and call it again."""
 
-PLAN_PROMPT = """You are a cycling coach planning the user's training calendar inside a workout app. They \
+PLAN_PROMPT = """You are a cycling and running coach planning the user's training calendar inside a workout app. They \
 tell you what they want ("plan my week: 3 rides, long one on Saturday", "move Thursday's session to Friday", \
 "make next week easier"); you put complete structured workouts on dates with `plan_workouts`, replace them \
 (pass `replaces_id`) or take them off with `remove_planned`.
 
-The app supports cycling only. Each workout uses the same format as the app's single-workout chat: \
-intensity as a fraction of FTP, steps warmup / cooldown / steady / ramp / rest / free with duration_s, \
-`repeat` blocks for intervals, a short label on each interval step, and a clear name such as \
-"Sweet Spot 3x12" (no date in the name).
+The app supports cycling and running; set each workout's `sport`. Each workout uses the same format as \
+the app's single-workout chat: intensity as a fraction of FTP (cycling) or of threshold speed (running: \
+threshold pace / target pace), steps warmup / cooldown / steady / ramp / rest / free with duration_s \
+(running may use distance_m), `repeat` blocks for intervals, a short label on each interval step, and a \
+clear name such as "Sweet Spot 3x12" or "Easy Run 40'" (no date in the name). When the athlete does both \
+sports, count hard runs and hard rides together: no more than two hard days in a row either way.
 
 The context lists today's date and weekday and what's already planned (with ids). Plan from today on, in \
 the athlete's local dates (YYYY-MM-DD). Don't put workouts on days the user wants free. Unless they say \
@@ -91,8 +122,12 @@ unless the user asks you to change them.
 If the context has readiness or Garmin's recovery time, use it for the next two days only: red recovery \
 or low readiness means today and tomorrow stay easy. Without it, don't guess.
 
-Zone guide (% FTP): recovery <55, endurance 56-75, tempo 76-90, sweet spot 88-94, threshold 95-105, \
-VO2 max 106-120, anaerobic >120.
+Zone guide, cycling (% FTP): recovery <55, endurance 56-75, tempo 76-90, sweet spot 88-94, threshold \
+95-105, VO2 max 106-120, anaerobic >120.
+Zone guide, running (% of threshold speed): recovery <80, easy 80-88, tempo 88-95, threshold 95-102, \
+interval 102-110, repetition >110.
+
+""" + GUIDELINES + """
 
 After the tools succeed, reply in 2-4 short sentences: the idea of the plan and anything you assumed. \
 Don't list every workout; the app shows the calendar. If a tool returns an error, fix it and call it again."""
@@ -115,6 +150,7 @@ PLAN_TOOLS = [
                             "date": {"type": "string", "description": "YYYY-MM-DD"},
                             "replaces_id": {"type": "integer", "description": "Id of a planned workout to replace"},
                             "workout": WORKOUT_SCHEMA,
+                            "guideline_exception": GUIDELINE_EXCEPTION,
                         },
                         "required": ["date", "workout"],
                     },
@@ -143,9 +179,23 @@ TOOLS = [
     {
         "name": "set_workout",
         "description": "Create or replace the current workout shown to the user. Always pass the full workout.",
-        "input_schema": WORKOUT_SCHEMA,
+        "input_schema": {**WORKOUT_SCHEMA, "properties": {**WORKOUT_SCHEMA["properties"],
+                                                          "guideline_exception": GUIDELINE_EXCEPTION}},
     }
 ]
+
+
+def check_workout(raw: dict, pace: int | None) -> dict:
+    """Validate a workout from a tool call and hold it to the training guidelines, unless the call
+    gives the athlete's reason for an exception. Raises WorkoutError with what to fix."""
+    raw = dict(raw or {})
+    exception = str(raw.pop("guideline_exception", "") or "").strip()
+    workout = validate(raw)
+    problems = [] if exception else guideline_problems(workout, pace)
+    if problems:
+        raise WorkoutError("doesn't follow the training guidelines: " + "; ".join(problems) +
+                           ". Fix it, or set guideline_exception if the athlete explicitly asked for this.")
+    return workout
 
 
 def _profile_text(user) -> str:
@@ -159,7 +209,10 @@ def _profile_text(user) -> str:
     if user["threshold_pace_s_per_km"]:
         p = user["threshold_pace_s_per_km"]
         parts.append(f"running threshold pace {p // 60}:{p % 60:02d} /km")
-    return "Athlete profile: " + (", ".join(parts) if parts else "not set (use relative intensities only).")
+    text = "Athlete profile: " + (", ".join(parts) if parts else "not set (use relative intensities only).")
+    if user["training_rules"]:
+        text += "\nThe athlete's own training rules (follow them):\n" + user["training_rules"]
+    return text
 
 
 def chat(user, history: list, current: dict | None, user_text: str, client: anthropic.Anthropic | None = None,
@@ -187,7 +240,7 @@ def chat(user, history: list, current: dict | None, user_text: str, client: anth
     def handle(tu):
         nonlocal workout
         try:
-            candidate = validate(tu.input)
+            candidate = check_workout(tu.input, user["threshold_pace_s_per_km"])
         except WorkoutError as e:
             return f"Invalid workout: {e}", True
         workout = candidate

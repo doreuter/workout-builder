@@ -27,7 +27,9 @@ def from_zwo(data: bytes, fallback_name: str = "Imported workout") -> dict:
 
     sport = "running" if (_text(root, "sportType") or "").lower() == "run" else "cycling"
     if sport not in ENABLED_SPORTS:
-        raise ImportError_("This is a running workout. Running isn't supported yet, only cycling.")
+        raise ImportError_(f"{sport.capitalize()} workouts can't be imported.")
+    # Zwift running workouts can measure steps in metres instead of seconds.
+    by_distance = sport == "running" and (_text(root, "durationType") or "").strip().lower() == "distance"
     body = _child(root, "workout")
     if body is None or len(body) == 0:
         raise ImportError_("That workout has no steps.")
@@ -91,6 +93,8 @@ def from_zwo(data: bytes, fallback_name: str = "Imported workout") -> dict:
         steps.append(step)
 
     tags_el = _child(root, "tags")
+    if by_distance:
+        _durations_to_distances(steps)
     workout = {
         "name": (_text(root, "name") or fallback_name).strip(),
         "sport": sport,
@@ -112,10 +116,13 @@ POWER_ZONE_MID = {1: 0.45, 2: 0.65, 3: 0.83, 4: 0.98, 5: 1.13, 6: 1.35, 7: 1.6}
 # Rough %FTP for heart-rate zone targets, so HR-based workouts still chart sensibly.
 HR_ZONE_POWER = {1: 0.5, 2: 0.65, 3: 0.8, 4: 0.92, 5: 1.05}
 _FIT_SPORTS = {0: "cycling", 1: "running", 2: "cycling"}  # generic counts as cycling
+# Rough fraction of threshold speed for running steps that target "speed zone N" or a heart-rate zone.
+RUN_ZONE_SPEED = {1: 0.75, 2: 0.84, 3: 0.91, 4: 0.98, 5: 1.06}
 _INTENSITY_KIND = {0: "steady", 1: "rest", 2: "warmup", 3: "cooldown", 4: "rest", 5: "steady"}
 
 
-def from_fit(data: bytes, ftp: int | None, fallback_name: str = "Imported workout") -> dict:
+def from_fit(data: bytes, ftp: int | None, fallback_name: str = "Imported workout",
+             threshold_pace_s_per_km: int | None = None) -> dict:
     """Read a Garmin workout .fit file (as copied from the watch or exported from apps)."""
     from fit_tool.fit_file import FitFile
     from fit_tool.profile.messages.workout_message import WorkoutMessage
@@ -133,10 +140,8 @@ def from_fit(data: bytes, ftp: int | None, fallback_name: str = "Imported workou
         raise ImportError_("This .fit file isn't a workout. It may be a recorded ride; only planned workouts can be imported.")
 
     sport = _FIT_SPORTS.get(header.sport if header.sport is not None else 2)
-    if sport == "running":
-        raise ImportError_("This is a running workout. Running isn't supported yet, only cycling.")
     if sport not in ENABLED_SPORTS:
-        raise ImportError_("Only cycling workouts can be imported.")
+        raise ImportError_("Only cycling and running workouts can be imported.")
 
     fit_steps.sort(key=lambda m: m.message_index if m.message_index is not None else 0)
     steps: list[dict] = []
@@ -152,7 +157,7 @@ def from_fit(data: bytes, ftp: int | None, fallback_name: str = "Imported workou
             del steps[start:]
             steps.append(block)
         else:
-            steps.append(_fit_step(m, ftp))
+            steps.append(_fit_step(m, ftp) if sport == "cycling" else _fit_run_step(m, threshold_pace_s_per_km))
 
     workout = {
         "name": (header.workout_name or fallback_name).strip(),
@@ -211,6 +216,59 @@ def _fit_step(m, ftp: int | None) -> dict:
         step["label"] = label
     if cadence and step["type"] != "free":
         step["cadence"] = cadence
+    return step
+
+
+def _durations_to_distances(steps: list) -> None:
+    """In a distance-based Zwift run the Duration attributes are metres."""
+    for s in steps:
+        if s["type"] == "repeat":
+            _durations_to_distances(s["steps"])
+        elif "duration_s" in s:
+            s["distance_m"] = s.pop("duration_s")
+
+
+def _fit_run_step(m, pace: int | None) -> dict:
+    """A running step: speed targets become fractions of threshold speed; distance steps stay distances."""
+    kind = _INTENSITY_KIND.get(m.intensity if m.intensity is not None else 0, "steady")
+    name = (m.workout_step_name or "").strip()
+    if m.duration_type == 0:
+        length = {"duration_s": int(round(m.duration_time or 0))}
+    elif m.duration_type == 1:
+        length = {"distance_m": int(round(m.duration_distance or 0))}
+    elif m.duration_type == 5:
+        length, name = {"duration_s": 300}, name or "Until lap button"
+    else:
+        raise ImportError_("This workout uses a step length the app doesn't support (only time or distance).")
+
+    lo = hi = None
+    label = None
+    if m.target_type == 0:  # speed
+        if m.target_value:  # speed zone
+            lo = hi = RUN_ZONE_SPEED.get(m.target_value, 0.84)
+            label = f"Speed zone {m.target_value}"
+        elif m.custom_target_speed_low or m.custom_target_speed_high:
+            if not pace:
+                raise ImportError_("This running workout uses pace targets. Set your threshold pace in Settings first, "
+                                   "then import it again.")
+            threshold = 1000 / pace  # m/s
+            lo, hi = (round((v or 0) / threshold, 3) for v in (m.custom_target_speed_low, m.custom_target_speed_high))
+    elif m.target_type == 1:  # heart rate zone, approximated as speed so it still charts
+        zone = m.target_value or 2
+        lo = hi = RUN_ZONE_SPEED.get(zone, 0.84)
+        label = f"HR zone {zone}"
+
+    if lo is None or hi is None:
+        step = {"type": "free", **length}
+    elif kind in ("warmup", "cooldown") and lo != hi:
+        start, end = (lo, hi) if kind == "warmup" else (hi, lo)
+        step = {"type": kind, **length, "intensity": start, "intensity_end": end}
+    else:
+        step = {"type": kind if kind in ("steady", "rest") else "steady", **length, "intensity": round((lo + hi) / 2, 3)}
+    if name and name.lower() not in ("warmup", "cooldown", "steady", "rest", "free"):
+        step["label"] = name
+    elif label:
+        step["label"] = label
     return step
 
 

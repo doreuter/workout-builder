@@ -15,7 +15,7 @@ from fit_tool.profile.messages.workout_step_message import WorkoutStepMessage  #
 from app import llm, main  # noqa: E402
 from app.exporters import to_fit, to_zwo  # noqa: E402
 from app.main import app  # noqa: E402
-from app.workout import SPORTS, WorkoutError, stats, validate  # noqa: E402
+from app.workout import SPORTS, WorkoutError, guideline_problems, stats, validate  # noqa: E402
 from app.importers import ImportError_, from_zwo  # noqa: E402
 
 THRESHOLD = {
@@ -280,17 +280,22 @@ def test_import_uploaded_file(client):
 
 # --- running is switched off until v2 ----------------------------------------------------
 
-def test_running_is_disabled(client):
-    with pytest.raises(WorkoutError, match="running"):
-        validate(RUN)
-    with pytest.raises(ImportError_, match="Running isn't supported"):
-        from_zwo(to_zwo(validate(RUN, SPORTS), 270))
+def test_running_round_trips_and_is_listed(client):
+    run = validate(RUN)
+    back = from_zwo(to_zwo(run, 270))
+    # .zwo turns distance repeats into timed steps, so compare the time, not the steps.
+    assert back["sport"] == "running" and abs(stats(back, 270)["duration_s"] - stats(run, 270)["duration_s"]) <= 6
+    fit = to_fit(run, 270)
+    again = from_fit(fit, ftp=None, threshold_pace_s_per_km=270)
+    assert again["sport"] == "running" and again["steps"][1]["steps"][0]["distance_m"] == 400
+    assert abs(again["steps"][1]["steps"][0]["intensity"] - 1.1) < 0.01
+    with pytest.raises(ImportError_, match="threshold pace"):
+        from_fit(fit, ftp=None)
 
     client.post("/api/register", json={"email": "run@example.com", "password": "longenough"})
     user_id = main.db.get_user_by_email("run@example.com")["id"]
-    main.db.create_workout(user_id, validate(RUN, SPORTS))  # e.g. created before running was switched off
-    draft = client.post("/api/workouts").json()["id"]
-    assert [w["id"] for w in client.get("/api/workouts").json()] == [draft]
+    wid = main.db.create_workout(user_id, run)
+    assert wid in [w["id"] for w in client.get("/api/workouts").json()]
 
 
 # --- Garmin .fit import ----------------------------------------------------------------
@@ -372,8 +377,6 @@ def test_from_fit_garmin_style():
 def test_from_fit_errors():
     with pytest.raises(ImportError_, match="Set your FTP"):
         from_fit(_garmin_fit(GARMIN), ftp=None)
-    with pytest.raises(ImportError_, match="running"):
-        from_fit(_garmin_fit(GARMIN, sport=Sport.RUNNING), ftp=260)
     with pytest.raises(ImportError_, match="isn't a valid .fit"):
         from_fit(b"\x0e\x10" + b"\x00" * 6 + b".FIT" + b"garbage", ftp=260)
 
@@ -1176,6 +1179,13 @@ def test_calendar_and_planning_chat(client, monkeypatch):
     listed = {w["name"]: w["planned_date"] for w in client.get("/api/workouts").json()}
     assert listed["Long Z2"] == d2
 
+    # A second account on the same device sees an empty calendar, then the first account's again.
+    client.post("/api/logout")
+    _as(client, "planner-two@example.com")
+    assert client.get(f"/api/plan?start={today.isoformat()}&days=14").json()["workouts"] == []
+    client.post("/api/logout")
+    _as(client, "planner@example.com")
+
     # Move one by hand, take one off, and let the planner remove the other.
     first, second = plan["workouts"]
     moved = client.put(f"/api/workouts/{first['id']}/plan", json={"date": d2}).json()
@@ -1204,3 +1214,52 @@ def test_planning_chat_history_is_capped():
     kept = llm.trim_history(history, 6)
     assert len(kept) == 24 and kept[0]["content"][0]["text"] == "ctx 4"
     assert llm.trim_history(history[:8], 6) == history[:8]
+
+
+# --- training guidelines ----------------------------------------------------------------------
+
+def test_guidelines_want_a_warm_up_and_cool_down():
+    assert guideline_problems(validate(THRESHOLD)) == []
+    no_warmup = {**THRESHOLD, "steps": THRESHOLD["steps"][1:]}
+    problems = guideline_problems(validate(no_warmup))
+    assert len(problems) == 1 and "warm up for at least 10 min" in problems[0]
+    bare = {**THRESHOLD, "steps": [THRESHOLD["steps"][1]]}
+    assert len(guideline_problems(validate(bare))) == 2
+    easy = {"name": "Easy", "sport": "cycling", "description": "", "steps": [
+        {"type": "steady", "duration_s": 3600, "intensity": 0.65}]}
+    assert guideline_problems(validate(easy)) == []
+    assert any("cool-down" in p for p in guideline_problems(validate(RUN), 270))  # ends on a hard rep
+
+
+def test_chat_sends_back_workouts_without_warm_up(client, monkeypatch):
+    no_warmup = {**THRESHOLD, "steps": THRESHOLD["steps"][1:]}
+
+    class Fussy(FakeClient):
+        """First builds without a warm-up, then fixes it after the tool error."""
+        def _create(self, **kwargs):
+            self.calls.append(kwargs)
+            last = kwargs["messages"][-1]["content"]
+            if isinstance(last, list) and last[0]["type"] == "tool_result":
+                if last[0].get("is_error"):
+                    return SimpleNamespace(stop_reason="tool_use", content=[
+                        Block(type="tool_use", id="tu_2", name="set_workout", input=THRESHOLD)])
+                return SimpleNamespace(stop_reason="end_turn", content=[Block(type="text", text="Added a warm-up.")])
+            return SimpleNamespace(stop_reason="tool_use", content=[
+                Block(type="tool_use", id="tu_1", name="set_workout", input=no_warmup)])
+
+    fake = Fussy(THRESHOLD)
+    monkeypatch.setattr(llm.anthropic, "Anthropic", lambda: fake)
+    _as(client, "fussy@example.com")
+    client.put("/api/me/profile", json={"ftp": 250, "training_rules": "Weekdays max 60 min."})
+    wid = client.post("/api/workouts").json()["id"]
+    view = client.post(f"/api/workouts/{wid}/chat", json={"message": "4x8 threshold"}).json()
+    assert view["reply"] == "Added a warm-up." and view["workout"]["steps"][0]["type"] == "warmup"
+    error = fake.calls[1]["messages"][2]["content"][0]
+    assert error["is_error"] and "training guidelines" in error["content"]
+    assert "Weekdays max 60 min." in fake.calls[0]["messages"][0]["content"][0]["text"]
+    assert client.get("/api/me").json()["training_rules"] == "Weekdays max 60 min."
+
+    # An explicit wish to skip the warm-up is allowed, with a reason.
+    assert llm.check_workout({**no_warmup, "guideline_exception": "already warmed up outside"}, None)["steps"]
+    with pytest.raises(WorkoutError, match="guidelines"):
+        llm.check_workout(no_warmup, None)

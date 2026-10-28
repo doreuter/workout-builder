@@ -16,7 +16,8 @@ const EXAMPLES = [
   "15 min warm-up, 4×8 min at threshold with 3 min easy, 10 min cool-down",
   "Sweet spot ride: 3×12 min at 90% with 5 min recovery, 75 min total",
   "VO2 max: 5×4 min at 115% with 4 min easy, 1 hour total",
-  "Easy 90 min endurance ride at 65% with 6×10 s sprints",
+  "Run: 6×800 m at 5k pace with 400 m jog",
+  "Easy 45 min run with 4 strides at the end",
 ];
 
 const ZONES = {
@@ -200,11 +201,35 @@ $("#auth-form").addEventListener("submit", async (e) => {
 
 $("#logout-btn").addEventListener("click", async () => {
   await api("/api/logout", { method: "POST" });
-  state.user = null;
-  state.readiness = null;
-  state.currentId = null;
+  forgetAccount();
   showAuth();
 });
+
+// Drop everything shown for the previous account, so the next one never sees it, not even while loading.
+function forgetAccount() {
+  Object.assign(state, { user: null, readiness: null, currentId: null, view: null, workouts: [], plan: null, planStart: null });
+  for (const sel of ["#workout-list", "#messages", "#p-weeks", "#p-messages", "#r-components", "#r-trends", "#r-acts"]) {
+    $(sel).replaceChildren();
+  }
+  $("#r-body").hidden = true;
+}
+
+// All tabs of a browser share one login. When this tab or window comes back into view, check it's still
+// the account it shows; if someone signed out or into another account elsewhere, start over.
+async function checkAccount() {
+  if (document.hidden || !state.user) return;
+  try {
+    const me = await api("/api/me");
+    if (me.email !== state.user.email) location.reload();
+  } catch (err) {
+    if (err.status === 401) {
+      forgetAccount();
+      showAuth();
+    }
+  }
+}
+document.addEventListener("visibilitychange", checkAccount);
+window.addEventListener("focus", checkAccount);
 
 // --- workouts list -----------------------------------------------------------------
 
@@ -291,7 +316,7 @@ function renderMessages(extra = []) {
       `Tell me what to change in "${state.view.workout.name}", for example "add one more interval" or "make the recoveries 1 min shorter".`));
   } else if (!all.length) {
     const intro = el("div", { class: "msg assistant" });
-    intro.textContent = "Describe a cycling workout and I'll build it. You can then ask for changes, like \"make the intervals 30 s longer\".";
+    intro.textContent = "Describe a ride or a run and I'll build it. You can then ask for changes, like \"make the intervals 30 s longer\".";
     const ex = el("div", { class: "examples" });
     const examples = state.user?.garmin ? ["What should I ride today, given my readiness?", ...EXAMPLES.slice(0, 3)] : EXAMPLES;
     for (const text of examples) {
@@ -708,7 +733,7 @@ async function loadBrowserZwiftList() {
       const doc = new DOMParser().parseFromString(await file.text(), "application/xml");
       const name = doc.querySelector("workout_file > name")?.textContent?.trim() || file.name.replace(/\.zwo$/i, "");
       const run = doc.querySelector("workout_file > sportType")?.textContent?.trim().toLowerCase() === "run";
-      return { file, filename: file.name, name, sport: run ? "running" : "cycling", error: run ? "Running isn't supported yet" : null };
+      return { file, filename: file.name, name, sport: run ? "running" : "cycling", error: null };
     }));
     zwiftFiles.sort((a, b) => a.name.localeCompare(b.name));
     renderImportList();
@@ -910,7 +935,7 @@ function showView(view) {
 
 document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => showView(t.dataset.view)));
 
-const SUGGEST_PROMPT = "Suggest a cycling workout for today that fits my readiness and recent training load.";
+const SUGGEST_PROMPT = "Suggest a workout for today that fits my readiness, recovery time and recent training load.";
 
 $("#r-suggest").addEventListener("click", async () => {
   showView("workouts");
@@ -1247,6 +1272,7 @@ $("#settings-btn").addEventListener("click", () => {
   f.pace.value = p ? `${Math.floor(p / 60)}:${String(p % 60).padStart(2, "0")}` : "";
   f.lthr_run.value = state.user.lthr_run ?? "";
   f.lthr_bike.value = state.user.lthr_bike ?? "";
+  f.training_rules.value = state.user.training_rules ?? "";
   f.querySelectorAll(".filled").forEach((i) => i.classList.remove("filled"));
   $("#garmin-fetch").hidden = !state.user.garmin;
   $("#garmin-fetch-msg").textContent = "Fills in FTP and threshold heart rates. Check them, then save.";
@@ -1295,8 +1321,7 @@ $("#delete-btn").addEventListener("click", async () => {
   try {
     await api("/api/me/delete", { method: "POST", body: { password } });
     $("#settings").close();
-    state.user = null;
-    state.readiness = null;
+    forgetAccount();
     showAuth("login");
     showMsg($("#auth-error"), "Your account and its data have been deleted.", "success");
   } catch (err) {
@@ -1373,6 +1398,7 @@ $("#settings-save").addEventListener("click", async (e) => {
         threshold_pace_s_per_km: pace,
         lthr_run: num(f.lthr_run),
         lthr_bike: num(f.lthr_bike),
+        training_rules: f.training_rules.value.trim() || null,
       },
     });
     $("#settings").close();

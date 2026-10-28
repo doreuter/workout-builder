@@ -91,6 +91,7 @@ class Profile(BaseModel):
     threshold_pace_s_per_km: int | None = Field(default=None, ge=120, le=900)
     lthr_run: int | None = Field(default=None, ge=80, le=230)
     lthr_bike: int | None = Field(default=None, ge=80, le=230)
+    training_rules: str | None = Field(default=None, max_length=1000)
 
 
 def _is_admin(user) -> bool:
@@ -104,6 +105,7 @@ def _user_json(user) -> dict:
         "threshold_pace_s_per_km": user["threshold_pace_s_per_km"],
         "lthr_run": user["lthr_run"],
         "lthr_bike": user["lthr_bike"],
+        "training_rules": user["training_rules"],
         "is_admin": _is_admin(user),
         "messages_left_today": _messages_left(user),
         "garmin": garmin.is_owner(user),
@@ -175,7 +177,8 @@ def me(user=Depends(current_user)):
 
 @app.put("/api/me/profile")
 def update_profile(body: Profile, user=Depends(current_user)):
-    db.update_profile(user["id"], body.ftp, body.threshold_pace_s_per_km, body.lthr_run, body.lthr_bike)
+    db.update_profile(user["id"], body.ftp, body.threshold_pace_s_per_km, body.lthr_run, body.lthr_bike,
+                      (body.training_rules or "").strip() or None)
     return _user_json(db.get_user(user["id"]))
 
 
@@ -462,7 +465,6 @@ def _get_row(user, workout_id: int):
 
 @app.get("/api/workouts")
 def list_workouts(user=Depends(current_user)):
-    # Workouts in switched-off sports (running, until v2) stay in the database but aren't listed.
     return [dict(r) for r in db.list_workouts(user["id"], ENABLED_SPORTS)]
 
 
@@ -613,7 +615,9 @@ class _Planner:
         for i, item in enumerate(items):
             try:
                 day = self._date(item.get("date"))
-                workout = validate(item.get("workout"))
+                workout = llm.check_workout({**(item.get("workout") or {}),
+                                             "guideline_exception": item.get("guideline_exception")},
+                                            self.user["threshold_pace_s_per_km"])
                 old = item.get("replaces_id")
                 if old is not None:
                     row = db.get_workout(self.user["id"], int(old))
@@ -801,7 +805,7 @@ def import_file(file: UploadFile, user=Depends(current_user)):
     is_fit = data[8:12] == b".FIT"  # FIT files carry this signature in their header
     try:
         if is_fit:
-            workout = from_fit(data, user["ftp"], stem)
+            workout = from_fit(data, user["ftp"], stem, user["threshold_pace_s_per_km"])
         elif filename.lower().endswith(".zwo") or data.lstrip().startswith(b"<"):
             workout = from_zwo(data, stem)
         else:

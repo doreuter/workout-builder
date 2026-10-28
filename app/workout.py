@@ -8,8 +8,7 @@ Intensity is always a fraction of the athlete's threshold:
 from __future__ import annotations
 
 SPORTS = ("cycling", "running")
-# Running is switched off until v2; its formats, exports and tests stay in place.
-ENABLED_SPORTS = ("cycling",)
+ENABLED_SPORTS = SPORTS
 STEP_TYPES = ("warmup", "cooldown", "steady", "ramp", "free", "rest")
 DEFAULT_THRESHOLD_PACE = 300  # s/km, used only to estimate time for distance steps
 
@@ -88,8 +87,6 @@ def validate(workout: dict, sports: tuple[str, ...] = ENABLED_SPORTS) -> dict:
         raise WorkoutError("workout must be an object")
     sport = workout.get("sport")
     if sport not in sports:
-        if sport == "running":
-            raise WorkoutError("running workouts aren't supported yet; only cycling is")
         raise WorkoutError(f"sport must be one of {sports}")
     name = str(workout.get("name") or "").strip()[:80]
     if not name:
@@ -265,3 +262,33 @@ def summary(workout: dict, threshold_pace_s_per_km: int | None = None) -> str:
     st = stats(workout, threshold_pace_s_per_km)
     mins = st["duration_s"] // 60
     return f"{workout['name']}: {mins // 60}h{mins % 60:02d}m, IF {st['intensity_factor']}, ~{st['tss']} TSS"
+
+
+# --- training guidelines -----------------------------------------------------
+
+# From this intensity on a step counts as hard work that needs a warm-up: sweet spot for cycling (% FTP),
+# a bit below threshold pace for running (fraction of threshold speed).
+HARD_FROM = {"cycling": 0.88, "running": 0.92}
+MIN_WARMUP_S = 600
+MIN_COOLDOWN_S = 300
+
+
+def guideline_problems(workout: dict, threshold_pace_s_per_km: int | None = None) -> list[str]:
+    """What a workout misses of the app's training guidelines (empty = fine). Applied to workouts the
+    chats build, not to imported ones."""
+    hard_from = HARD_FROM[workout["sport"]]
+    segments = flatten(workout, threshold_pace_s_per_km)
+    hard = [i for i, s in enumerate(segments)
+            if max(s["intensity"] or 0, s["intensity_end"] or 0) >= hard_from and s["duration_s"] >= 30]
+    if not hard:
+        return []
+    problems = []
+    before = sum(s["duration_s"] for s in segments[:hard[0]])
+    after = sum(s["duration_s"] for s in segments[hard[-1] + 1:])
+    if before < MIN_WARMUP_S:
+        problems.append(f"the hard work starts after {before // 60} min; warm up for at least "
+                        f"{MIN_WARMUP_S // 60} min first, building gradually from easy")
+    if after < MIN_COOLDOWN_S:
+        problems.append(f"only {after // 60} min after the last hard effort; end with at least "
+                        f"{MIN_COOLDOWN_S // 60} min easy cool-down")
+    return problems

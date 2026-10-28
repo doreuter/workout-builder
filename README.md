@@ -1,6 +1,6 @@
 # VibeGrind
 
-Describe a cycling workout in plain language. Claude turns it into a structured workout, the app draws it as a chart, and you send it to Zwift or download it for Zwift (`.zwo`) or Garmin (`.fit`).
+Describe a ride or a run in plain language. Claude turns it into a structured workout, the app draws it as a chart, and you send it to Zwift or download it for Zwift (`.zwo`) or Garmin (`.fit`).
 
 ## Run it
 
@@ -89,6 +89,19 @@ workouts on dates ("plan next week: 4 rides, long ride Saturday"), replaces or r
 connected. The planning chat keeps its last 6 exchanges; the calendar itself is sent with every message.
 Any workout can also be put on a date, or taken off, from its own view.
 
+## Running and training guidelines
+
+Rides and runs both work. Running intensity is a fraction of threshold *speed* (threshold pace from
+Settings); running steps may be distances (`distance_m`). `.zwo` running exports turn distances into time;
+`.fit` exports keep distances and use pace targets (needs the threshold pace). Imports read both.
+
+Both chats follow the app's training guidelines (`GUIDELINES` in `app/llm.py`). Two are enforced in code
+(`guideline_problems` in `app/workout.py`): a session with work at sweet spot or harder (cycling from 88 % FTP,
+running from 92 % of threshold speed) needs at least 10 min before the first hard effort and 5 min after the
+last. A workout that misses them goes back to Claude to fix, unless the athlete explicitly asked to skip it
+(`guideline_exception`). Imported workouts aren't checked. Each user can add **their own training rules** in
+Settings (free text, max 1000 characters); Claude gets them with every message.
+
 ## How it works
 
 ```
@@ -161,8 +174,7 @@ rather than showing a wrong number.
 
 ## Not done yet (v2)
 
-- **Running.** It's switched off with `ENABLED_SPORTS` in `app/workout.py`. The running format, the `.zwo`/`.fit` running exports and their tests are still in the code. Running workouts created earlier stay in the database but aren't listed. To bring running back, add it to `ENABLED_SPORTS`, restore the threshold-pace setting and the running parts of the prompt, and add running examples to the UI.
-- Push to Zwift or Garmin through a connector (for example intervals.icu)
+- Push to Zwift or Garmin through an official API (Zwift Training API, Garmin Developer Program)
 - Streaming chat replies
-- Password reset / email verification
+- Email verification
 - Heart-rate–based targets
