@@ -484,7 +484,9 @@ def test_security_headers_and_cross_site_block(client):
 
 from datetime import date as _date, timedelta as _td  # noqa: E402
 
-from app import garmin, readiness  # noqa: E402
+from datetime import datetime as _dt, timezone as _tz  # noqa: E402
+
+from app import fitmeta, garmin, readiness  # noqa: E402
 
 
 class FakeGarmin:
@@ -528,6 +530,32 @@ class FakeGarmin:
                 for d in self._range(start_date, end_date) if d.toordinal() % 2 == 0]
         return acts[start:start + limit]
 
+    files = {}  # activity id -> original file bytes; anything else gets a file without a recovery time
+    downloads = 0
+
+    def download_activity(self, activity_id):
+        self.downloads += 1
+        return self.files.get(activity_id, _activity_fit(None, _dt.now(_tz.utc)))
+
+
+def _activity_fit(recovery_min, at, zipped=True):
+    """A minimal activity file with Garmin's summary message 140 (recovery time in field 9)."""
+    import struct, zipfile, io
+    stamp = int((at - fitmeta.FIT_EPOCH).total_seconds())
+    records = b""
+    if recovery_min is not None:
+        records += bytes([0x40, 0, 0]) + struct.pack("<H", 140) + bytes([3, 253, 4, 0x86, 9, 2, 0x84, 4, 1, 0x02])
+        records += bytes([0x00]) + struct.pack("<IHB", stamp, recovery_min, 35)
+    else:  # just a file_id message
+        records += bytes([0x40, 0, 0]) + struct.pack("<H", 0) + bytes([1, 0, 1, 0x00]) + bytes([0x00, 4])
+    fit = bytes([14, 0x20]) + struct.pack("<H", 2132) + struct.pack("<I", len(records)) + b".FIT\0\0" + records + b"\0\0"
+    if not zipped:
+        return fit
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("123_ACTIVITY.fit", fit)
+    return buf.getvalue()
+
 
 @pytest.fixture
 def garmin_owner(client, monkeypatch):
@@ -562,6 +590,63 @@ def test_garmin_sync_and_readiness(client, garmin_owner, monkeypatch):
     assert len(fake.calls) == n
     client.get("/api/readiness?refresh=1")
     assert fake.calls[-1][1] >= today - _td(days=garmin.RESYNC_DAYS)
+
+
+def test_recovery_time_is_read_from_activity_files():
+    at = _dt(2026, 10, 27, 18, 47, 17, tzinfo=_tz.utc)
+    assert fitmeta.recovery(_activity_fit(2798, at)) == (2798, at)
+    assert fitmeta.recovery(_activity_fit(2798, at, zipped=False)) == (2798, at)
+    assert fitmeta.recovery(_activity_fit(None, at)) is None  # e.g. yoga: no summary message
+    assert fitmeta.recovery(_activity_fit(0xFFFF, at)) is None  # FIT's "no value"
+    assert fitmeta.recovery(b"not a fit file") is None
+    assert fitmeta.recovery(_activity_fit(2798, at, zipped=False)[:30]) is None  # cut off
+
+
+def _act(name, day, recovery_min, ended):
+    return {"name": name, "type_key": "indoor_cycling", "day": day, "recovery_min": recovery_min,
+            "recovery_from": ended.isoformat() if ended else None}
+
+
+def test_recovery_countdown_and_traffic_light():
+    ride = _act("Ride", "2026-10-27", 2798, _dt(2026, 10, 27, 18, 47, tzinfo=_tz.utc))
+    r = readiness.recovery([ride], _dt(2026, 10, 28, 7, 17, tzinfo=_tz.utc))
+    assert r["hours_left"] == 34.1 and r["light"] == "yellow" and r["activity"]["hours"] == 46.6
+    assert readiness.recovery([ride], _dt(2026, 10, 27, 20, 0, tzinfo=_tz.utc))["light"] == "red"
+    assert readiness.recovery([ride], _dt(2026, 10, 29, 6, 0, tzinfo=_tz.utc))["light"] == "green"
+    gone = readiness.recovery([ride], _dt(2026, 11, 1, tzinfo=_tz.utc))
+    assert gone["hours_left"] == 0 and gone["title"] == "Recovered"
+
+    # Overlapping activities don't add up: the one whose recovery ends last counts.
+    run = _act("Run", "2026-10-22", 3170, _dt(2026, 10, 22, 17, 19, tzinfo=_tz.utc))  # ends 25 Oct 0:09 UTC
+    ride2 = _act("Ride", "2026-10-24", 1695, _dt(2026, 10, 24, 17, 40, tzinfo=_tz.utc))  # ends 25 Oct 22:55 UTC
+    r = readiness.recovery([run, ride2], _dt(2026, 10, 24, 17, 40, tzinfo=_tz.utc))
+    assert r["activity"]["day"] == "2026-10-24" and r["hours_left"] == 28.2 and r["light"] == "yellow"
+    assert readiness.recovery([_act("Yoga", "2026-10-23", None, None)], _dt.now(_tz.utc)) is None
+
+
+def test_recovery_time_on_dashboard_and_in_chat(client, garmin_owner, monkeypatch):
+    today = _date.today()
+    fake = FakeGarmin(today)
+    latest = max(1000 + d for d in range(today.toordinal() - 4, today.toordinal() + 1) if d % 2 == 0)
+    fake.files = {latest: _activity_fit(40 * 60, _dt.now(_tz.utc) - _td(hours=6))}
+    monkeypatch.setattr(garmin, "_client", lambda: fake)
+    with main.db.connect() as conn:  # earlier tests already checked these activities' files
+        conn.execute("UPDATE garmin_activities SET recovery_min = NULL, recovery_from = NULL, recovery_checked = NULL")
+
+    data = client.get("/api/readiness?refresh=1").json()
+    rec = data["recovery"]
+    assert rec["light"] == "yellow" and 33.9 <= rec["hours_left"] <= 34 and rec["activity"]["hours"] == 40
+    assert next(a for a in data["activities"] if a["recovery_min"])["recovery_min"] == 2400
+    # Each recent file is downloaded once (only the last few days), not again on the next sync.
+    assert 1 <= fake.downloads <= 3
+    n = fake.downloads
+    client.get("/api/readiness?refresh=1")
+    assert fake.downloads == n
+
+    wid = client.post("/api/workouts").json()["id"]
+    client.post(f"/api/workouts/{wid}/chat", json={"message": "What should I ride today?"})
+    context = _last_user_turn(client)[0]["text"]
+    assert "Recovery time (Garmin's own" in context and "34 h left, yellow" in context
 
 
 def test_readiness_drops_after_a_bad_night(client, garmin_owner, monkeypatch):

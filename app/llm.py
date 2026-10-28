@@ -53,6 +53,9 @@ activities. Use it like a coach would:
 supports intervals or a hard session; 55-74 endurance, tempo or sweet spot; 40-54 an easy Zone 1-2 ride; \
 below 40 rest or a very short spin. Also consider load: a 7-day/28-day ratio above about 1.3, or a big \
 load in the last 48 h, argues for easier work; a ratio below about 0.8 means they're fresh.
+- The summary may also carry Garmin's recovery time with a traffic light. Red (over 36 h left): a recovery \
+ride or rest. Yellow (15-36 h): Zone 1-2 or a short tempo block, no hard intervals. Green (under 15 h): \
+anything readiness allows. When readiness and recovery time disagree, follow the more cautious one.
 - When they ask for a specific workout, build what they asked for. If readiness clearly argues against it \
 (for example a VO2 max session at readiness 40), build it anyway, say so in one sentence and offer an \
 easier alternative. Don't lecture.

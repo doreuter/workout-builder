@@ -78,7 +78,10 @@ CREATE TABLE IF NOT EXISTS garmin_activities (
     anaerobic_te REAL,
     te_label TEXT,
     vo2max REAL,
-    avg_hr REAL
+    avg_hr REAL,
+    recovery_min INTEGER,  -- Garmin's recovery time from the activity file...
+    recovery_from TEXT,    -- ...counted down from this moment (UTC)
+    recovery_checked INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_garmin_activities_day ON garmin_activities(user_id, day);
 CREATE TABLE IF NOT EXISTS garmin_sync (
@@ -118,6 +121,10 @@ def init_db() -> None:
         if "source_filename" not in columns:
             # Name of the Zwift file a workout was imported from; Send to Zwift updates that file.
             conn.execute("ALTER TABLE workouts ADD COLUMN source_filename TEXT")
+        columns = {r["name"] for r in conn.execute("PRAGMA table_info(garmin_activities)")}
+        for name, kind in (("recovery_min", "INTEGER"), ("recovery_from", "TEXT"), ("recovery_checked", "INTEGER")):
+            if name not in columns:
+                conn.execute(f"ALTER TABLE garmin_activities ADD COLUMN {name} {kind}")
 
 
 @contextmanager
@@ -289,6 +296,24 @@ def upsert_garmin_activity(user_id: int, activity_id: int, values: dict) -> None
                 VALUES (?, ?, {", ".join("?" * len(cols))})
                 ON CONFLICT (activity_id) DO UPDATE SET {", ".join(f"{c} = excluded.{c}" for c in cols)}""",
             (activity_id, user_id, *(values.get(c) for c in cols)),
+        )
+
+
+def garmin_activities_without_recovery(user_id: int, since: str) -> list[int]:
+    """Activities whose file hasn't been checked for a recovery time yet."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT activity_id FROM garmin_activities WHERE user_id = ? AND day >= ? AND recovery_checked IS NULL",
+            (user_id, since),
+        ).fetchall()
+    return [r["activity_id"] for r in rows]
+
+
+def set_garmin_recovery(activity_id: int, minutes: int | None, since: str | None) -> None:
+    with connect() as conn:
+        conn.execute(
+            "UPDATE garmin_activities SET recovery_min = ?, recovery_from = ?, recovery_checked = 1 WHERE activity_id = ?",
+            (minutes, since, activity_id),
         )
 
 

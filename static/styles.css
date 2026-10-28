@@ -257,7 +257,7 @@ button.danger { background: var(--error); border-color: var(--error); color: #ff
 .r-head p { margin: .2rem 0 0; }
 .r-error { background: var(--banner); border-radius: 8px; padding: .6rem .8rem; margin: 0 0 1rem; }
 .r-loading { padding: 2rem 0; }
-.r-top { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(300px, 1.4fr) minmax(220px, 1fr); gap: 16px; }
+.r-top { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(220px, 1fr) minmax(300px, 1.4fr) minmax(220px, 1fr); gap: 16px; }
 .r-top .card, .r-acts-wrap { padding: 1.1rem; }
 .r-top h2, .r-section { font-size: 1rem; margin: 0 0 .75rem; }
 .r-section { margin: 1.75rem 0 .75rem; }
@@ -274,6 +274,21 @@ button.danger { background: var(--error); border-color: var(--error); color: #ff
 .status-moderate { background: var(--warning); }
 .status-easy { background: var(--serious); }
 .status-recover { background: var(--critical); }
+
+.r-recovery { display: grid; gap: .5rem; align-content: start; }
+.r-recovery h2, .r-recovery p { margin: 0; }
+.r-rec-main { display: flex; align-items: center; gap: .9rem; }
+.r-rec-ring { width: 64px; height: 64px; flex: none; transform: rotate(-90deg); }
+.r-rec-ring circle { fill: none; stroke-width: 6; }
+.r-rec-track { stroke: var(--grid); }
+.r-rec-arc { stroke-linecap: round; }
+.r-rec-hours { font-family: var(--mono); font-size: 1.6rem; font-weight: 500; line-height: 1.1; }
+.r-rec-arc.light-green { stroke: var(--good); }
+.r-rec-arc.light-yellow { stroke: var(--warning); }
+.r-rec-arc.light-red { stroke: var(--critical); }
+.r-dot.light-green { background: var(--good); }
+.r-dot.light-yellow { background: var(--warning); }
+.r-dot.light-red { background: var(--critical); }
 
 .r-parts ul { list-style: none; margin: 0; padding: 0; display: grid; gap: .7rem; }
 .r-part-head { display: flex; justify-content: space-between; gap: .5rem; font-size: .9rem; }
@@ -308,9 +323,8 @@ button.danger { background: var(--error); border-color: var(--error); color: #ff
 .r-acts td { font-family: var(--mono); font-size: .82rem; padding: .45rem .6rem .45rem 0; border-top: 1px solid var(--border); white-space: nowrap; }
 .r-acts td:nth-child(2) { white-space: normal; }
 
-@media (max-width: 1100px) {
+@media (max-width: 1300px) {
   .r-top { grid-template-columns: 1fr 1fr; }
-  .r-hero { grid-column: 1 / -1; }
 }
 @media (max-width: 900px) {
   .tabs { margin-left: .25rem; }

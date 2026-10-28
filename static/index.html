@@ -96,6 +96,24 @@
             <p class="muted small r-note">The app's own estimate from your Garmin HRV, sleep, resting heart rate, Body Battery and training load. Garmin's Personal API doesn't include Garmin's Training Readiness score.</p>
           </article>
 
+          <article class="card r-recovery" id="r-recovery" hidden>
+            <h2>Recovery time</h2>
+            <div class="r-rec-main">
+              <svg class="r-rec-ring" id="r-rec-ring" viewBox="0 0 64 64" aria-hidden="true">
+                <circle class="r-rec-track" cx="32" cy="32" r="26"></circle>
+                <circle class="r-rec-arc" id="r-rec-arc" cx="32" cy="32" r="26"></circle>
+              </svg>
+              <div>
+                <p class="r-rec-hours" id="r-rec-hours"></p>
+                <p class="muted small" id="r-rec-until"></p>
+              </div>
+            </div>
+            <p class="r-status" id="r-rec-status"></p>
+            <p id="r-rec-advice"></p>
+            <p class="muted small" id="r-rec-from"></p>
+            <p class="muted small r-note">Garmin's own recovery time, read from your activity files and counted down from the end of the activity. Green under 15 h, yellow 15–36 h, red over 36 h.</p>
+          </article>
+
           <article class="card r-parts">
             <h2>What's behind it</h2>
             <ul id="r-components"></ul>
@@ -114,7 +132,7 @@
         <h2 class="r-section">Recent activities</h2>
         <div class="card r-acts-wrap">
           <table class="r-acts">
-            <thead><tr><th>Date</th><th>Activity</th><th>Time</th><th>NP</th><th>TSS</th><th>Load</th><th>Effect</th></tr></thead>
+            <thead><tr><th>Date</th><th>Activity</th><th>Time</th><th>NP</th><th>TSS</th><th>Load</th><th>Effect</th><th>Recovery</th></tr></thead>
             <tbody id="r-acts"></tbody>
           </table>
         </div>

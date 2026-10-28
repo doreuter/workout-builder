@@ -830,8 +830,30 @@ function renderReadiness(d) {
     : r < 0.8 ? "Lighter than usual: you're fresh, but fitness may slip if it lasts."
     : "Load is in a sustainable range.";
 
+  renderRecovery(d.recovery);
   renderTrends(d.trend);
   renderActivities(d.activities);
+}
+
+const RECOVERY_RING = 2 * Math.PI * 26;
+
+function renderRecovery(rec) {
+  $("#r-recovery").hidden = !rec;
+  if (!rec) return;
+  const left = rec.hours_left;
+  $("#r-rec-hours").textContent = left > 0 ? `${Math.round(left)} h left` : "Recovered";
+  const until = new Date(rec.until);
+  const when = until.toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  $("#r-rec-until").textContent = left > 0 ? `until ${when}` : `since ${when}`;
+  const arc = $("#r-rec-arc");
+  const share = rec.activity.hours > 0 ? Math.min(1, left / rec.activity.hours) : 0;
+  arc.setAttribute("stroke-dasharray", `${share * RECOVERY_RING} ${RECOVERY_RING}`);
+  arc.setAttribute("class", `r-rec-arc light-${rec.light}`);
+  const status = $("#r-rec-status");
+  status.replaceChildren(el("span", { class: `r-dot light-${rec.light}`, "aria-hidden": "true" }), rec.title);
+  $("#r-rec-advice").textContent = rec.advice;
+  const a = rec.activity;
+  $("#r-rec-from").textContent = `From ${a.name || a.type_key || "your activity"} on ${fmtDay(a.day)}: ${Math.round(a.hours)} h.`;
 }
 
 const TRENDS = [
@@ -964,7 +986,7 @@ function renderActivities(acts) {
   body.replaceChildren();
   if (!acts.length) {
     const tr = el("tr");
-    const td = el("td", { colspan: "7", class: "muted" }, "No activities in the last 14 days.");
+    const td = el("td", { colspan: "8", class: "muted" }, "No activities in the last 14 days.");
     tr.append(td);
     body.append(tr);
     return;
@@ -974,7 +996,8 @@ function renderActivities(acts) {
     const tr = el("tr");
     const effect = a.te_label ? a.te_label.toLowerCase().replace(/_/g, " ") : (a.aerobic_te != null ? `aerobic ${n(a.aerobic_te, 1)}` : "–");
     [fmtDay(a.day), a.name || a.type_key, a.duration_s ? fmtDuration(Math.round(a.duration_s)) : "–",
-      a.norm_power ? `${n(a.norm_power)} W` : "–", n(a.tss), n(a.training_load), effect]
+      a.norm_power ? `${n(a.norm_power)} W` : "–", n(a.tss), n(a.training_load), effect,
+      a.recovery_min ? `${Math.round(a.recovery_min / 60)} h` : "–"]
       .forEach((v) => tr.append(el("td", {}, v)));
     body.append(tr);
   }

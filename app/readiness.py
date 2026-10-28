@@ -1,14 +1,17 @@
 """The app's own readiness estimate, built from Garmin data.
 
-Garmin's Personal API doesn't expose Training Readiness, recovery time or training status, so this
-module derives a transparent 0-100 score from what it does expose. Each component scores 0-100 and
+Garmin's Personal API doesn't expose Training Readiness or training status, so this module derives a
+transparent 0-100 score from what it does expose. Each component scores 0-100 and
 explains itself; the total is their weighted average (missing components are left out and the
 weights rescaled). It is an estimate, labelled as such in the UI - not Garmin's number.
+
+Recovery time is Garmin's own: the device writes it into each activity file (see fitmeta.py) and it is
+counted down from there.
 """
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from statistics import median
 
 WEIGHTS = {"hrv": 0.30, "sleep": 0.25, "resting_hr": 0.15, "body_battery": 0.15, "load": 0.15}
@@ -19,6 +22,17 @@ VERDICTS = [  # (minimum score, key, title, advice)
     (40, "easy", "Take it easy", "An easy Zone 1–2 ride or rest."),
     (0, "recover", "Recovery day", "Rest, or a very easy spin."),
 ]
+
+
+RECOVERY_LIGHTS = {  # green under 15 h, yellow 15-36 h, red over 36 h
+    "red": ("Still recovering", "A recovery ride or a rest day."),
+    "yellow": ("Partly recovered", "Easy to moderate: Zone 1–2 or a short tempo block, no hard intervals."),
+    "green": ("Recovered", "Good to go, hard sessions included."),
+}
+
+
+def recovery_light(hours_left: float) -> str:
+    return "red" if hours_left > 36 else "yellow" if hours_left >= 15 else "green"
 
 
 def _clamp(x: float, lo: float = 0, hi: float = 100) -> float:
@@ -146,12 +160,39 @@ def score_day(row, history, loads: dict[str, float]) -> dict:
     }
 
 
+def recovery(activities, now: datetime) -> dict | None:
+    """Garmin's recovery time, counted down to `now`. Overlapping activities don't add up: like the
+    watch, the one that ends last wins. None when no recent activity carried a recovery time."""
+    best = None
+    for a in activities:
+        if not a["recovery_min"] or not a["recovery_from"]:
+            continue
+        until = datetime.fromisoformat(a["recovery_from"]) + timedelta(minutes=a["recovery_min"])
+        if best is None or until > best[0]:
+            best = (until, a)
+    if best is None:
+        return None
+    until, a = best
+    hours_left = max(0.0, (until - now).total_seconds() / 3600)
+    light = recovery_light(hours_left)
+    title, advice = RECOVERY_LIGHTS[light]
+    return {
+        "hours_left": round(hours_left, 1),
+        "until": until.isoformat(),
+        "light": light,
+        "title": title,
+        "advice": advice,
+        "activity": {"name": a["name"], "type_key": a["type_key"], "day": a["day"],
+                     "hours": round(a["recovery_min"] / 60, 1)},
+    }
+
+
 PART_LABELS = {"hrv": "HRV", "sleep": "Sleep", "resting_hr": "Resting HR", "body_battery": "Body Battery", "load": "Training load"}
 
 
-def chat_context(days, activities, today: date) -> str | None:
+def chat_context(days, activities, today: date, now: datetime | None = None) -> str | None:
     """A compact plain-text summary of readiness and recent training, for Claude's context."""
-    data = build(days, activities, today)
+    data = build(days, activities, today, now)
     t = data["today"]
     if t is None:
         return None
@@ -167,6 +208,14 @@ def chat_context(days, activities, today: date) -> str | None:
         f"Training load (Garmin load, all sports): 7-day avg {load['acute']:.0f}/day, 28-day avg {load['chronic']:.0f}/day, "
         f"ratio {ratio}; load in the last 48 h: {load['last_48h']}."
     )
+    rec = data["recovery"]
+    if rec:
+        act = rec["activity"]
+        lines.append(
+            f"Recovery time (Garmin's own, from the activity files, counted down): {rec['hours_left']:.0f} h left, "
+            f"{rec['light']} ({rec['title'].lower()}; green under 15 h, yellow 15-36 h, red over 36 h). "
+            f"From {act['type_key'] or 'activity'} on {act['day']}, which set {act['hours']:.0f} h."
+        )
     lines.append("Last 7 days (date: readiness, HRV ms, sleep h, load):")
     for p in data["trend"][-7:]:
         sleep = f"{p['sleep_hours']:.1f}" if p["sleep_hours"] else "-"
@@ -191,9 +240,10 @@ def chat_context(days, activities, today: date) -> str | None:
     return "\n".join(lines)
 
 
-def build(days, activities, today: date) -> dict:
-    """Everything the dashboard needs: today's readiness plus 30 days of trends."""
+def build(days, activities, today: date, now: datetime | None = None) -> dict:
+    """Everything the dashboard needs: today's readiness, recovery time and 30 days of trends."""
     rows = list(days)
+    activities = list(activities)
     loads = daily_loads(activities, today - timedelta(days=70), today)
     by_day = {r["day"]: r for r in rows}
     scored = []
@@ -218,4 +268,9 @@ def build(days, activities, today: date) -> dict:
             "body_battery": r["bb_max"] if r else None,
             "load": round(loads.get(d, 0.0)),
         })
-    return {"today": latest, "is_today": bool(latest and latest["day"] == today.isoformat()), "trend": trend}
+    return {
+        "today": latest,
+        "is_today": bool(latest and latest["day"] == today.isoformat()),
+        "recovery": recovery(activities, now or datetime.now(timezone.utc)),
+        "trend": trend,
+    }

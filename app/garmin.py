@@ -10,12 +10,13 @@ from __future__ import annotations
 import os
 from datetime import date, datetime, timedelta, timezone
 
-from . import config, db
+from . import config, db, fitmeta
 
 BACKFILL_DAYS = 60
 RESYNC_DAYS = 3  # re-read the last few days: sleep and HRV can arrive after the day itself
 MIN_SYNC_INTERVAL = timedelta(hours=3)
 CHUNK_DAYS = 28  # keep each range request modest
+RECOVERY_DAYS = 5  # Garmin's recovery time is at most 4 days, so older files can't matter
 
 
 class GarminError(RuntimeError):
@@ -63,7 +64,7 @@ def _client():
             token = auth.obtain_token(api_key())
     except GarminPersonalApiError as e:
         status = getattr(e, "status_code", None)
-        if status in (401, 403):
+        if status in (401, 403, 404):  # 404: the key was deleted in Garmin Connect
             raise GarminError("Garmin rejected the API key. It may have expired: create a new one in Garmin Connect.")
         raise GarminError(f"Couldn't get a Garmin token ({status or e}).")
     return GarminPersonalApiClient(token.access_token)
@@ -89,6 +90,7 @@ def sync(user, *, force: bool = False, today: date | None = None, client=None) -
             _sync_sleep(client, user["id"], lo, hi)
             _sync_daily(client, user["id"], lo, hi)
             _sync_activities(client, user["id"], lo, hi)
+        _sync_recovery(client, user["id"], today - timedelta(days=RECOVERY_DAYS))
     except GarminError as e:
         db.set_garmin_sync_state(user["id"], None, str(e))
         raise
@@ -193,3 +195,19 @@ def _sync_activities(client, user_id: int, lo: date, hi: date) -> None:
         if len(page) < limit:
             break
         start += limit
+
+
+def _sync_recovery(client, user_id: int, since: date) -> None:
+    """Read the recovery time from each recent activity's original file, once per activity.
+
+    The Personal API's activity summaries don't include it; the device writes it into the file.
+    A file that can't be downloaded is tried again on the next sync; one without a value is not.
+    """
+    for activity_id in db.garmin_activities_without_recovery(user_id, since.isoformat()):
+        try:
+            data = client.download_activity(activity_id)
+        except Exception:
+            continue
+        found = fitmeta.recovery(data)
+        minutes, start = found if found else (None, None)
+        db.set_garmin_recovery(activity_id, minutes, start.isoformat() if start else None)
