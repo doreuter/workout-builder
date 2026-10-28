@@ -104,6 +104,15 @@ last. A workout that misses them goes back to Claude to fix, unless the athlete 
 (`guideline_exception`). Imported workouts aren't checked. Each user can add **their own training rules** in
 Settings (free text, max 1000 characters); Claude gets them with every message.
 
+## Outdoor terrain brief
+
+Each workout gets a short **"Outdoors"** note on its view — where to ride or run it — derived in code from
+the session's shape (`terrain_brief` in `app/workout.py`), so it costs no tokens and never drifts. Long
+sustained cycling efforts suggest a climb; short sharp reps a flat or rolling loop; running pace reps a
+track or measured flat; a long tempo a steady uninterrupted path; an easy session, any continuous route. The
+same one-line note rides along in the chat context, so asking Claude "where should I do this?" gives a
+consistent answer. No map or elevation data is used yet — fitting a session to a named route is a later step.
+
 ## How it works
 
 ```

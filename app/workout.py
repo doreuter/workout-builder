@@ -311,3 +311,61 @@ def _ceiling_problems(workout, segments, endurance_ceiling_pct) -> list[str]:
                            f'"{s["label"]}" effort is at {round(peak * 100)}%')
     # Collapse repeats of the same message so one over-limit block isn't reported many times.
     return list(dict.fromkeys(out))
+
+
+# --- outdoor terrain brief ---------------------------------------------------
+
+SUSTAINED_S = 300  # a hard effort this long or longer wants a climb / a long uninterrupted stretch
+
+
+def _fmt_min(seconds: int) -> str:
+    m = max(1, round(seconds / 60))
+    return f"{m} min" if m < 60 else f"{m // 60} h {m % 60:02d}"
+
+
+def terrain_brief(workout: dict, threshold_pace_s_per_km: int | None = None) -> dict | None:
+    """A short "where to do this outdoors" note derived from the workout's structure, so a rider or
+    runner can pick a route that fits. Returns {"terrain", "summary", "tips"} or None if there's nothing
+    to say yet. Pure computation (no model call): deterministic and free."""
+    if not workout or not workout.get("steps"):
+        return None
+    sport = workout["sport"]
+    segments = flatten(workout, threshold_pace_s_per_km)
+    if not segments:
+        return None
+    activity = "running" if sport == "running" else "riding"
+    hard_from = HARD_FROM[sport]
+    hard = [seg for seg in segments
+            if max(seg["intensity"] or 0, seg["intensity_end"] or 0) >= hard_from and seg["duration_s"] >= 30]
+    total = _fmt_min(sum(seg["duration_s"] for seg in segments))
+    tips: list[str] = []
+
+    if not hard:
+        return {"terrain": "any",
+                "summary": f"Easy session — any continuous route works, rolling included. "
+                           f"Just keep {activity} without stops for the full {total}.",
+                "tips": []}
+
+    longest = max(seg["duration_s"] for seg in hard)
+    reps = len(hard)
+    if sport == "running":
+        if longest >= 480:
+            terrain = "steady path"
+            summary = (f"The {_fmt_min(longest)} effort wants a steady, uninterrupted path — a riverside or "
+                       f"park loop, not a route with road crossings.")
+        else:
+            terrain = "track / flat"
+            summary = (f"A track or a measured flat path suits the {reps} reps; traffic breaks ruin the pace "
+                       f"and timing.")
+        tips.append("Keep the easy running between efforts truly easy.")
+    elif longest >= SUSTAINED_S:
+        terrain = "climb"
+        summary = (f"The sustained efforts (up to {_fmt_min(longest)}) want a steady climb or a long "
+                   f"uninterrupted road — ideally a climb of about {_fmt_min(longest)}.")
+    else:
+        terrain = "flat / rolling"
+        summary = (f"Short, hard reps — use flat or gently rolling road, or a loop you can repeat, "
+                   f"with no junctions mid-rep.")
+    tips.append(f"You need about {total} of near-continuous {activity} in all.")
+    tips.append("Don't start an effort into a junction or a red light.")
+    return {"terrain": terrain, "summary": summary, "tips": tips}

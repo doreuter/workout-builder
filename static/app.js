@@ -475,6 +475,7 @@ function renderWorkout() {
 
   renderChart(workout.sport, segments, stats.duration_s);
   renderLegend(workout.sport, segments);
+  renderTerrain(state.view.terrain);
   renderSteps(workout);
 
   for (const fmt of ["zwo", "fit"]) {
@@ -482,6 +483,15 @@ function renderWorkout() {
     a.href = `/api/workouts/${state.view.id}/export/${fmt}`;
     a.onclick = (e) => exportFile(e, fmt);
   }
+}
+
+// "Where to do this outside" — a short note derived from the workout's shape (computed server-side).
+function renderTerrain(terrain) {
+  const t = $("#w-terrain");
+  if (!terrain) { t.hidden = true; return; }
+  const text = [terrain.summary, ...(terrain.tips || [])].join(" ");
+  t.replaceChildren(el("strong", {}, "Outdoors: "), document.createTextNode(text));
+  t.hidden = false;
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";

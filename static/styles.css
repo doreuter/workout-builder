@@ -474,3 +474,14 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
   dialog { width: calc(100% - 24px); }
   .settings-form { padding: 1.1rem; }
 }
+
+/* "Outdoors" note on the workout view: where to ride or run the session. */
+.terrain {
+  margin: 0 0 1rem;
+  padding: .6rem .8rem;
+  border-left: 3px solid var(--accent);
+  background: var(--surface-2, rgba(127, 127, 127, .08));
+  border-radius: 0 6px 6px 0;
+  color: var(--muted);
+}
+.terrain strong { color: var(--text); }
