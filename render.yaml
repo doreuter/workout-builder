@@ -41,3 +41,5 @@ services:
         sync: false          # optional: your Garmin Connect Personal API key, for your Readiness dashboard
       - key: ORS_API_KEY
         sync: false          # optional: OpenRouteService key, for outdoor route suggestions
+      - key: THUNDERFOREST_API_KEY
+        sync: false          # optional: Thunderforest key, for the cycling basemap under route suggestions

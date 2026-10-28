@@ -31,6 +31,11 @@ def available() -> bool:
     return bool(os.environ.get("ORS_API_KEY"))
 
 
+def tile_key() -> str | None:
+    """Thunderforest key for the cycling basemap (a client-side, domain-restricted key)."""
+    return os.environ.get("THUNDERFOREST_API_KEY") or None
+
+
 # --- the one network call (monkeypatched in tests) --------------------------------------
 
 def _directions(lat: float, lon: float, length_m: int, seed: int) -> dict:

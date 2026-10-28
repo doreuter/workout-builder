@@ -169,7 +169,8 @@ rolling for endurance) and returns the best as a **candidate to check** — neve
   is off and `/api/integrations` reports `routes: false`.
 - The workout view has a **Find a route outside** panel (Leaflet map, self-hosted; click the map or use your
   location to set a start) that draws the suggested loop. Start location is personal data and goes only to ORS
-  (privacy policy updated). OSM-backed services are blocked on the owner's network, so this is tested against recorded ORS
+  (privacy policy updated). The basemap is **Thunderforest** (cycling tiles with contours), set with
+  `THUNDERFOREST_API_KEY`; OpenStreetMap's own tile servers block app use, so they aren't used. OSM-backed services are blocked on the owner's network, so this is tested against recorded ORS
   responses and exercised live on Render. A round-trip loop matches terrain and distance, not the exact
   interval structure, so it reads e.g. "do the efforts on the 2 km climb at ~6%".
 

@@ -797,7 +797,7 @@ def suggest_route(workout_id: int, body: RouteIn, request: Request, user=Depends
 
 @app.get("/api/integrations")
 def integrations(user=Depends(current_user)):
-    return {"zwift": zwift.status(), "routes": routes.available()}
+    return {"zwift": zwift.status(), "routes": routes.available(), "tile_key": routes.tile_key()}
 
 
 @app.post("/api/workouts/{workout_id}/send/zwift")

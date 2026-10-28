@@ -244,6 +244,7 @@ async function startApp() {
   const integrations = await api("/api/integrations").catch(() => ({}));
   state.zwiftAvailable = !!integrations.zwift?.available;
   state.routesAvailable = !!integrations.routes;
+  state.tileKey = integrations.tile_key || null;
   state.device = deviceKind();
   state.browserZwift = !state.zwiftAvailable && ZwiftFolder.supported && !["phone", "tablet"].includes(state.device);
   if (state.browserZwift) await ZwiftFolder.load();
@@ -1405,7 +1406,10 @@ function initRouteMap() {
   if (state.routeMap || !window.L) return;
   const start = parseStart($("#route-start").value) || { lat: 46.8, lon: 8.23 };
   const map = L.map("route-map", { scrollWheelZoom: false }).setView([start.lat, start.lon], parseStart($("#route-start").value) ? 12 : 7);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 17, attribution: "© OpenStreetMap" }).addTo(map);
+  if (state.tileKey) {  // Thunderforest cycle map (contours + hill shading); OSM's own tiles block app use
+    L.tileLayer(`https://{s}.tile.thunderforest.com/cycle/{z}/{x}/{y}.png?apikey=${state.tileKey}`,
+      { maxZoom: 18, attribution: "Maps © Thunderforest, Data © OpenStreetMap contributors" }).addTo(map);
+  }
   map.on("click", (e) => setRouteStart(e.latlng.lat, e.latlng.lng));
   state.routeMap = map;
   if (parseStart($("#route-start").value)) setRouteStart(start.lat, start.lon);
