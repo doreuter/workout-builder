@@ -560,10 +560,28 @@ def test_later_admin_addresses_need_an_invite(client, monkeypatch):
     assert r.status_code == 200 and r.json()["is_admin"] is True
 
 
+def test_oversized_request_body_is_rejected(client):
+    client.post("/api/register", json={"email": "big@example.com", "password": "longenough"})
+    wid = client.post("/api/workouts").json()["id"]
+    # A body over the 1 MB cap is turned away with 413, before any handler reads it.
+    big = {"message": "x" * (1024 * 1024 + 10)}
+    r = client.post(f"/api/workouts/{wid}/chat", json=big)
+    assert r.status_code == 413
+    # A multipart upload over the cap is turned away the same way.
+    up = client.post("/api/import/file", files={"file": ("x.zwo", b"z" * (1024 * 1024 + 10), "application/xml")})
+    assert up.status_code == 413
+    # A normal-sized request still works (this one fails validation inside, not at the size gate).
+    small = client.post(f"/api/workouts/{wid}/chat", json={"message": "hi"})
+    assert small.status_code != 413
+
+
 def test_security_headers_and_cross_site_block(client):
     r = client.get("/healthz")
     assert r.status_code == 200 and r.headers["x-frame-options"] == "DENY"
     assert "default-src 'self'" in r.headers["content-security-policy"]
+    assert "form-action 'self'" in r.headers["content-security-policy"]
+    assert r.headers["cross-origin-opener-policy"] == "same-origin"
+    assert "camera=()" in r.headers["permissions-policy"]
     evil = client.post("/api/login", json={"email": "a@b.co", "password": "x"}, headers={"Origin": "https://evil.example"})
     assert evil.status_code == 403
     same = client.post("/api/login", json={"email": "nobody2@example.com", "password": "longenough"}, headers={"Origin": "http://testserver"})

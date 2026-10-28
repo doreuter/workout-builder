@@ -73,10 +73,19 @@ SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "same-origin",
-    # Everything the app loads comes from its own origin; no inline scripts.
+    # Everything the app loads comes from its own origin; no inline scripts; forms only post to us.
     "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; object-src 'none'; "
-    "base-uri 'none'; frame-ancestors 'none'",
+    "base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+    # The app needs none of these device features; turn them off everywhere.
+    "Permissions-Policy": "geolocation=(), microphone=(), camera=(), payment=(), usb=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
 }
+
+# Largest request body we accept, except the admin database restore (which streams and caps itself).
+# The biggest normal upload is a 512 KB .zwo plus a little multipart overhead, so 1 MB is ample.
+MAX_BODY_BYTES = 1024 * 1024
+RESTORE_PATH = "/api/admin/restore"
 
 
 def canonical_redirect(request: Request) -> str | None:
@@ -112,6 +121,15 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             origin = request.headers.get("origin")
             if origin and urlsplit(origin).netloc != request.headers.get("host"):
                 return JSONResponse({"detail": "Cross-site request blocked."}, status_code=403)
+            # Reject an oversized body before it's read, so a large upload can't fill memory or disk.
+            # The restore endpoint is exempt: it's admin-only and streams with its own 200 MB cap.
+            if request.url.path != RESTORE_PATH:
+                try:
+                    length = int(request.headers.get("content-length") or 0)
+                except ValueError:
+                    length = 0
+                if length > MAX_BODY_BYTES:
+                    return JSONResponse({"detail": "That request is too large."}, status_code=413)
         response = await call_next(request)
         for name, value in SECURITY_HEADERS.items():
             response.headers.setdefault(name, value)
