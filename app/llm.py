@@ -185,13 +185,13 @@ TOOLS = [
 ]
 
 
-def check_workout(raw: dict, pace: int | None) -> dict:
-    """Validate a workout from a tool call and hold it to the training guidelines, unless the call
-    gives the athlete's reason for an exception. Raises WorkoutError with what to fix."""
+def check_workout(raw: dict, pace: int | None, endurance_ceiling_pct: int | None = None) -> dict:
+    """Validate a workout from a tool call and hold it to the training guidelines and the athlete's
+    numeric rules, unless the call gives their reason for an exception. Raises WorkoutError."""
     raw = dict(raw or {})
     exception = str(raw.pop("guideline_exception", "") or "").strip()
     workout = validate(raw)
-    problems = [] if exception else guideline_problems(workout, pace)
+    problems = [] if exception else guideline_problems(workout, pace, endurance_ceiling_pct)
     if problems:
         raise WorkoutError("doesn't follow the training guidelines: " + "; ".join(problems) +
                            ". Fix it, or set guideline_exception if the athlete explicitly asked for this.")
@@ -210,8 +210,17 @@ def _profile_text(user) -> str:
         p = user["threshold_pace_s_per_km"]
         parts.append(f"running threshold pace {p // 60}:{p % 60:02d} /km")
     text = "Athlete profile: " + (", ".join(parts) if parts else "not set (use relative intensities only).")
+    rules = []
+    if user["endurance_ceiling_pct"]:
+        rules.append(f"Keep endurance/base steady efforts at or below {user['endurance_ceiling_pct']}% FTP, "
+                     f"and label those steps \"Endurance\" (the app enforces this ceiling on them).")
     if user["training_rules"]:
-        text += "\nThe athlete's own training rules (follow them):\n" + user["training_rules"]
+        rules.append(user["training_rules"])
+    if rules:
+        text += "\nThe athlete's own training rules (follow them, and they come before general habits):\n" + \
+                "\n".join(f"- {r}" for r in rules)
+        text += ("\nWhen you build or change a workout, end your reply with one short line listing which of "
+                 "these rules you applied, e.g. \"Applied your rules: endurance held at 63%.\"")
     return text
 
 
@@ -240,7 +249,7 @@ def chat(user, history: list, current: dict | None, user_text: str, client: anth
     def handle(tu):
         nonlocal workout
         try:
-            candidate = check_workout(tu.input, user["threshold_pace_s_per_km"])
+            candidate = check_workout(tu.input, user["threshold_pace_s_per_km"], user["endurance_ceiling_pct"])
         except WorkoutError as e:
             return f"Invalid workout: {e}", True
         workout = candidate

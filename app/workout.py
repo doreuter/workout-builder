@@ -273,16 +273,18 @@ MIN_WARMUP_S = 600
 MIN_COOLDOWN_S = 300
 
 
-def guideline_problems(workout: dict, threshold_pace_s_per_km: int | None = None) -> list[str]:
-    """What a workout misses of the app's training guidelines (empty = fine). Applied to workouts the
-    chats build, not to imported ones."""
+def guideline_problems(workout: dict, threshold_pace_s_per_km: int | None = None,
+                       endurance_ceiling_pct: int | None = None) -> list[str]:
+    """What a workout misses of the app's training guidelines, plus the athlete's own numeric rules
+    (empty = fine). Applied to workouts the chats build, not to imported ones."""
     hard_from = HARD_FROM[workout["sport"]]
     segments = flatten(workout, threshold_pace_s_per_km)
+    extra = _ceiling_problems(workout, segments, endurance_ceiling_pct)
     hard = [i for i, s in enumerate(segments)
             if max(s["intensity"] or 0, s["intensity_end"] or 0) >= hard_from and s["duration_s"] >= 30]
     if not hard:
-        return []
-    problems = []
+        return extra
+    problems = list(extra)
     before = sum(s["duration_s"] for s in segments[:hard[0]])
     after = sum(s["duration_s"] for s in segments[hard[-1] + 1:])
     if before < MIN_WARMUP_S:
@@ -292,3 +294,20 @@ def guideline_problems(workout: dict, threshold_pace_s_per_km: int | None = None
         problems.append(f"only {after // 60} min after the last hard effort; end with at least "
                         f"{MIN_COOLDOWN_S // 60} min easy cool-down")
     return problems
+
+
+def _ceiling_problems(workout, segments, endurance_ceiling_pct) -> list[str]:
+    """The athlete's endurance-intensity ceiling, enforced on cycling steps the model labels
+    "Endurance" (the prompt tells it to label them when a ceiling is set)."""
+    if not endurance_ceiling_pct or workout["sport"] != "cycling":
+        return []
+    ceiling = endurance_ceiling_pct / 100
+    out = []
+    for s in segments:
+        if s["label"] and "endurance" in s["label"].lower():
+            peak = max(s["intensity"] or 0, s["intensity_end"] or 0)
+            if peak > ceiling + 0.005:  # a little slack for rounding
+                out.append(f'your endurance ceiling is {endurance_ceiling_pct}% FTP, but the '
+                           f'"{s["label"]}" effort is at {round(peak * 100)}%')
+    # Collapse repeats of the same message so one over-limit block isn't reported many times.
+    return list(dict.fromkeys(out))

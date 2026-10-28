@@ -560,6 +560,72 @@ def test_later_admin_addresses_need_an_invite(client, monkeypatch):
     assert r.status_code == 200 and r.json()["is_admin"] is True
 
 
+ENDURANCE_RIDE = {
+    "name": "Base ride",
+    "sport": "cycling",
+    "steps": [
+        {"type": "warmup", "duration_s": 600, "intensity": 0.45, "intensity_end": 0.6},
+        {"type": "steady", "duration_s": 3600, "intensity": 0.72, "label": "Endurance"},
+    ],
+}
+
+
+def test_endurance_ceiling_is_enforced_on_labelled_steps():
+    from app.workout import guideline_problems
+    # Over the ceiling -> flagged (this ride has no hard work, so it exercises that path too).
+    over = guideline_problems(ENDURANCE_RIDE, None, 65)
+    assert over and "65% FTP" in over[0] and "72%" in over[0]
+    # Within the ceiling -> fine.
+    assert guideline_problems(ENDURANCE_RIDE, None, 75) == []
+    # No ceiling set -> fine.
+    assert guideline_problems(ENDURANCE_RIDE, None, None) == []
+    # Running is ignored (the ceiling is a % of FTP).
+    run = {**ENDURANCE_RIDE, "sport": "running"}
+    assert guideline_problems(run, 270, 65) == []
+
+
+def test_endurance_ceiling_flagged_alongside_a_hard_session():
+    from app.workout import guideline_problems
+    hard = {
+        "name": "Mixed", "sport": "cycling",
+        "steps": [
+            {"type": "warmup", "duration_s": 900, "intensity": 0.5, "intensity_end": 0.75},
+            {"type": "steady", "duration_s": 1200, "intensity": 0.7, "label": "Endurance"},
+            {"type": "steady", "duration_s": 480, "intensity": 0.97, "label": "Threshold"},
+            {"type": "cooldown", "duration_s": 600, "intensity": 0.6, "intensity_end": 0.4},
+        ],
+    }
+    problems = guideline_problems(hard, None, 65)  # warm-up/cool-down fine; only the 0.70 endurance block
+    assert len(problems) == 1 and "endurance ceiling" in problems[0] and "70%" in problems[0]
+
+
+def test_check_workout_rejects_over_ceiling_unless_excepted():
+    from app.workout import WorkoutError
+    try:
+        llm.check_workout(ENDURANCE_RIDE, None, 65)
+        assert False, "should have raised"
+    except WorkoutError as e:
+        assert "endurance ceiling" in str(e)
+    # The athlete's explicit reason bypasses it.
+    ok = llm.check_workout({**ENDURANCE_RIDE, "guideline_exception": "openers before the set"}, None, 65)
+    assert ok["name"] == "Base ride"
+
+
+def test_endurance_ceiling_saves_and_reaches_claude(client):
+    client.post("/api/register", json={"email": "adv@example.com", "password": "longenough"})
+    me = client.put("/api/me/profile", json={"ftp": 250, "endurance_ceiling_pct": 63}).json()
+    assert me["endurance_ceiling_pct"] == 63
+    assert client.get("/api/me").json()["endurance_ceiling_pct"] == 63
+    # The rule, and the request to report which rules were applied, reach the model's context.
+    wid = client.post("/api/workouts").json()["id"]
+    client.post(f"/api/workouts/{wid}/chat", json={"message": "an endurance ride"})
+    sent = "\n".join(b["text"] for c in client.fake.calls for m in c["messages"]
+                     if isinstance(m["content"], list) for b in m["content"] if b.get("type") == "text")
+    assert "63% FTP" in sent and "Applied your rules" in sent
+    # Out-of-range values are refused.
+    assert client.put("/api/me/profile", json={"endurance_ceiling_pct": 10}).status_code == 422
+
+
 def test_oversized_request_body_is_rejected(client):
     client.post("/api/register", json={"email": "big@example.com", "password": "longenough"})
     wid = client.post("/api/workouts").json()["id"]

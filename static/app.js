@@ -1364,6 +1364,7 @@ $("#settings-btn").addEventListener("click", () => {
   f.pace.value = p ? `${Math.floor(p / 60)}:${String(p % 60).padStart(2, "0")}` : "";
   f.lthr_run.value = state.user.lthr_run ?? "";
   f.lthr_bike.value = state.user.lthr_bike ?? "";
+  f.endurance_ceiling_pct.value = state.user.endurance_ceiling_pct ?? "";
   f.training_rules.value = state.user.training_rules ?? "";
   f.querySelectorAll(".filled").forEach((i) => i.classList.remove("filled"));
   $("#garmin-fetch").hidden = !state.user.garmin;
@@ -1490,6 +1491,7 @@ $("#settings-save").addEventListener("click", async (e) => {
         threshold_pace_s_per_km: pace,
         lthr_run: num(f.lthr_run),
         lthr_bike: num(f.lthr_bike),
+        endurance_ceiling_pct: num(f.endurance_ceiling_pct),
         training_rules: f.training_rules.value.trim() || null,
       },
     });

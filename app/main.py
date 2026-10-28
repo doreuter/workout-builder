@@ -92,6 +92,7 @@ class Profile(BaseModel):
     lthr_run: int | None = Field(default=None, ge=80, le=230)
     lthr_bike: int | None = Field(default=None, ge=80, le=230)
     training_rules: str | None = Field(default=None, max_length=1000)
+    endurance_ceiling_pct: int | None = Field(default=None, ge=40, le=85)
 
 
 def _is_admin(user) -> bool:
@@ -106,6 +107,7 @@ def _user_json(user) -> dict:
         "lthr_run": user["lthr_run"],
         "lthr_bike": user["lthr_bike"],
         "training_rules": user["training_rules"],
+        "endurance_ceiling_pct": user["endurance_ceiling_pct"],
         "is_admin": _is_admin(user),
         "messages_left_today": _messages_left(user),
         "garmin": garmin.is_owner(user),
@@ -187,7 +189,7 @@ def me(user=Depends(current_user)):
 @app.put("/api/me/profile")
 def update_profile(body: Profile, user=Depends(current_user)):
     db.update_profile(user["id"], body.ftp, body.threshold_pace_s_per_km, body.lthr_run, body.lthr_bike,
-                      (body.training_rules or "").strip() or None)
+                      (body.training_rules or "").strip() or None, body.endurance_ceiling_pct)
     return _user_json(db.get_user(user["id"]))
 
 
@@ -644,7 +646,8 @@ class _Planner:
                 day = self._date(item.get("date"))
                 workout = llm.check_workout({**(item.get("workout") or {}),
                                              "guideline_exception": item.get("guideline_exception")},
-                                            self.user["threshold_pace_s_per_km"])
+                                            self.user["threshold_pace_s_per_km"],
+                                            self.user["endurance_ceiling_pct"])
                 old = item.get("replaces_id")
                 if old is not None:
                     row = db.get_workout(self.user["id"], int(old))
