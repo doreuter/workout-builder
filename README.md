@@ -87,7 +87,9 @@ holds for at least five minutes, and weekly time and TSS. Next to it, **Plan wit
 workouts on dates ("plan next week: 4 rides, long ride Saturday"), replaces or removes them (`plan_workouts`,
 `remove_planned` in `app/llm.py`), using readiness and recovery time for the next two days when Garmin is
 connected. The planning chat keeps its last 6 exchanges; the calendar itself is sent with every message.
-Any workout can also be put on a date, or taken off, from its own view.
+Any workout can also be put on a date, or taken off, from its own view. **Clear…** empties the two weeks shown or everything from today on, keeping the workouts in the
+Library or deleting them. The workout list groups workouts into **Up next** (planned, today on), **Past** (folded) and
+**Library** (not planned), with search and a ride/run filter; empty drafts aren't listed.
 
 ## Running and training guidelines
 

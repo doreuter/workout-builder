@@ -561,6 +561,17 @@ def set_planned_date(user_id: int, workout_id: int, day: str | None) -> None:
         conn.execute("UPDATE workouts SET planned_date = ? WHERE id = ? AND user_id = ?", (day, workout_id, user_id))
 
 
+def clear_plan(user_id: int, start: str, end: str, delete: bool) -> int:
+    """Take every workout planned between start and end off the calendar, or delete them. Returns how many."""
+    with connect() as conn:
+        where = "user_id = ? AND planned_date BETWEEN ? AND ?"
+        if delete:
+            cur = conn.execute(f"DELETE FROM workouts WHERE {where}", (user_id, start, end))
+        else:
+            cur = conn.execute(f"UPDATE workouts SET planned_date = NULL WHERE {where}", (user_id, start, end))
+        return cur.rowcount
+
+
 def planned_workouts(user_id: int, start: str, end: str):
     with connect() as conn:
         return conn.execute(

@@ -583,6 +583,22 @@ def plan_workout(workout_id: int, body: PlanDateIn, user=Depends(current_user)):
     return _workout_view(user, _get_row(user, workout_id))
 
 
+class PlanClearIn(BaseModel):
+    start: str
+    end: str | None = None  # none: everything from start on
+    delete: bool = False  # delete the workouts instead of keeping them in the library
+
+
+@app.post("/api/plan/clear")
+def clear_plan(body: PlanClearIn, user=Depends(current_user)):
+    first = _parse_day(body.start, "start")
+    last = _parse_day(body.end, "end") if body.end else date(9999, 12, 31)
+    if last < first:
+        raise HTTPException(400, "The end date is before the start date.")
+    count = db.clear_plan(user["id"], first.isoformat(), last.isoformat(), body.delete)
+    return {"cleared": count, "deleted": body.delete}
+
+
 @app.get("/api/plan")
 def get_plan(start: str, days: int = 14, user=Depends(current_user)):
     first = _parse_day(start, "start")

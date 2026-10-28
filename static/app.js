@@ -255,31 +255,90 @@ async function loadList() {
   renderList();
 }
 
-function renderList() {
-  const list = $("#workout-list");
-  list.replaceChildren();
-  for (const w of state.workouts) {
-    const li = el("li", w.id === state.currentId ? { class: "active" } : {});
-    li.append(el("span", { class: "sport-dot" }, w.sport === "running" ? "🏃" : w.sport === "cycling" ? "🚴" : "•"));
-    const title = el("span", { class: "w-title" }, w.name);
-    if (w.planned_date) title.append(el("span", { class: "w-date" }, fmtDay(w.planned_date)));
-    li.append(title);
-    const del = el("button", { class: "del", "aria-label": `Delete ${w.name}` }, "✕");
-    del.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      if (!confirm(`Delete "${w.name}"?`)) return;
-      await api(`/api/workouts/${w.id}`, { method: "DELETE" });
-      await loadList();
-      if (w.id === state.currentId) {
-        if (state.workouts.length) await openWorkout(state.workouts[0].id);
-        else await newWorkout();
-      }
-    });
-    li.append(del);
-    li.addEventListener("click", () => openWorkout(w.id));
-    list.append(li);
-  }
+// Which sections are folded, per browser (Past starts folded).
+const FOLDED_KEY = "vibegrind.folded";
+function foldedGroups() {
+  try { return JSON.parse(localStorage.getItem(FOLDED_KEY)) || { past: true }; } catch { return { past: true }; }
 }
+function setFolded(key, folded) {
+  const all = foldedGroups();
+  all[key] = folded;
+  try { localStorage.setItem(FOLDED_KEY, JSON.stringify(all)); } catch { /* fine for this visit */ }
+}
+
+// "Today", "Tomorrow", "Thu 30" within the next week, else "30 Oct".
+function relativeDay(iso) {
+  const today = todayIso();
+  const days = Math.round((new Date(`${iso}T12:00:00`) - new Date(`${today}T12:00:00`)) / 86400000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Tomorrow";
+  if (days === -1) return "Yesterday";
+  if (days > 1 && days < 7) return fmtDay(iso, { weekday: "short", day: "numeric" });
+  return fmtDay(iso, { day: "numeric", month: "short" });
+}
+
+function renderList() {
+  const box = $("#workout-list");
+  box.replaceChildren();
+  const query = $("#list-search").value.trim().toLowerCase();
+  const sport = $("#list-sport").value;
+  const today = todayIso();
+  // Untouched drafts aren't worth a row, except the one that's open.
+  const shown = state.workouts.filter((w) => (w.sport || w.name !== "New workout" || w.id === state.currentId)
+    && (!sport || w.sport === sport || (!w.sport && w.id === state.currentId))
+    && (!query || w.name.toLowerCase().includes(query)));
+  const upcoming = shown.filter((w) => w.planned_date && w.planned_date >= today)
+    .sort((a, b) => a.planned_date.localeCompare(b.planned_date) || a.id - b.id);
+  const past = shown.filter((w) => w.planned_date && w.planned_date < today)
+    .sort((a, b) => b.planned_date.localeCompare(a.planned_date) || b.id - a.id);
+  const library = shown.filter((w) => !w.planned_date);  // already newest first from the server
+  const folded = foldedGroups();
+  const filtering = !!(query || sport);
+  for (const [key, title, items, empty] of [
+    ["upcoming", "Up next", upcoming, "Nothing planned. Put workouts on the calendar in the Plan tab."],
+    ["past", "Past", past, null],
+    ["library", "Library", library, "No other workouts yet."],
+  ]) {
+    if (!items.length && (key === "past" || filtering)) continue;
+    const group = el("details", { class: "w-group" });
+    // While searching, show every match; otherwise keep what the user folded.
+    group.open = filtering || items.some((w) => w.id === state.currentId) || !folded[key];
+    const summary = el("summary");
+    summary.append(el("span", {}, title), el("span", { class: "w-count" }, String(items.length)));
+    group.append(summary);
+    group.addEventListener("toggle", () => { if (!filtering) setFolded(key, !group.open); });
+    const ul = el("ul", { class: "workout-list" });
+    if (!items.length) ul.append(el("li", { class: "w-empty" }, empty));
+    for (const w of items) ul.append(listItem(w));
+    group.append(ul);
+    box.append(group);
+  }
+  if (!box.children.length) box.append(el("p", { class: "muted small w-none" }, "No workouts match."));
+}
+
+function listItem(w) {
+  const li = el("li", w.id === state.currentId ? { class: "active" } : {});
+  li.append(el("span", { class: "sport-dot" }, w.sport === "running" ? "🏃" : w.sport === "cycling" ? "🚴" : "•"));
+  li.append(el("span", { class: "w-title" }, w.name));
+  if (w.planned_date) li.append(el("span", { class: "w-when" }, relativeDay(w.planned_date)));
+  const del = el("button", { class: "del", "aria-label": `Delete ${w.name}` }, "✕");
+  del.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    if (!confirm(`Delete "${w.name}"?`)) return;
+    await api(`/api/workouts/${w.id}`, { method: "DELETE" });
+    await loadList();
+    if (w.id === state.currentId) {
+      if (state.workouts.length) await openWorkout(state.workouts[0].id);
+      else await newWorkout();
+    }
+  });
+  li.append(del);
+  li.addEventListener("click", () => openWorkout(w.id));
+  return li;
+}
+
+$("#list-search").addEventListener("input", renderList);
+$("#list-sport").addEventListener("change", renderList);
 
 async function newWorkout() {
   // Reuse an untouched draft instead of piling up empty ones.
@@ -913,6 +972,39 @@ const shiftWeeks = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate()
 $("#p-prev").addEventListener("click", () => { state.planStart = shiftWeeks(state.planStart, -1); loadPlan(); });
 $("#p-next").addEventListener("click", () => { state.planStart = shiftWeeks(state.planStart, 1); loadPlan(); });
 $("#p-today").addEventListener("click", () => { state.planStart = mondayOf(new Date()); loadPlan(); });
+$("#p-clear-open").addEventListener("click", () => {
+  const start = state.planStart;
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 13);
+  const shown = state.plan?.workouts.length || 0;
+  const fmt = (d) => d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  $("#clear-shown-label").textContent = `The two weeks shown (${fmt(start)} – ${fmt(end)}, ${shown} workout${shown === 1 ? "" : "s"})`;
+  $("#clear-msg").hidden = true;
+  $("#plan-clear").showModal();
+});
+
+$("#clear-confirm").addEventListener("click", async () => {
+  const f = $("#plan-clear form");
+  const scope = f.scope.value, del = f.action.value === "delete";
+  const start = state.planStart;
+  const body = scope === "shown"
+    ? { start: isoLocal(start), end: isoLocal(new Date(start.getFullYear(), start.getMonth(), start.getDate() + 13)), delete: del }
+    : { start: todayIso(), delete: del };
+  if (del && !confirm("Delete these workouts for good? This can't be undone.")) return;
+  try {
+    await api("/api/plan/clear", { method: "POST", body });
+    $("#plan-clear").close();
+    await loadList();
+    if (del && !state.workouts.some((w) => w.id === state.currentId)) {  // the open workout was deleted
+      if (state.workouts.length) await openWorkout(state.workouts[0].id);
+      else await newWorkout();
+    }
+    await loadPlan();
+  } catch (err) {
+    $("#clear-msg").textContent = err.message;
+    $("#clear-msg").hidden = false;
+  }
+});
+
 $("#p-clear").addEventListener("click", async () => {
   if (!confirm("Start the planning chat over? Your planned workouts stay on the calendar.")) return;
   await api("/api/plan/chat", { method: "DELETE" });

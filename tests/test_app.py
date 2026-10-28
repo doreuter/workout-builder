@@ -1263,3 +1263,34 @@ def test_chat_sends_back_workouts_without_warm_up(client, monkeypatch):
     assert llm.check_workout({**no_warmup, "guideline_exception": "already warmed up outside"}, None)["steps"]
     with pytest.raises(WorkoutError, match="guidelines"):
         llm.check_workout(no_warmup, None)
+
+
+def test_clearing_the_calendar(client):
+    _as(client, "clearer@example.com")
+    uid = main.db.get_user_by_email("clearer@example.com")["id"]
+    today = _date.today()
+    ids = []
+    for days in (-3, 1, 5, 20):
+        wid = main.db.create_workout(uid, validate(THRESHOLD))
+        main.db.set_planned_date(uid, wid, (today + _td(days=days)).isoformat())
+        ids.append(wid)
+    plan = lambda: [w["id"] for w in client.get(f"/api/plan?start={(today - _td(days=7)).isoformat()}&days=42").json()["workouts"]]  # noqa: E731
+
+    # The shown range only, kept in the library.
+    r = client.post("/api/plan/clear", json={"start": today.isoformat(), "end": (today + _td(days=6)).isoformat()}).json()
+    assert r == {"cleared": 2, "deleted": False} and plan() == [ids[0], ids[3]]
+    assert {ids[1], ids[2]} <= {w["id"] for w in client.get("/api/workouts").json()}
+
+    # Everything from today on, deleted; the past stays.
+    r = client.post("/api/plan/clear", json={"start": today.isoformat(), "delete": True}).json()
+    assert r["cleared"] == 1 and plan() == [ids[0]]
+    assert ids[3] not in {w["id"] for w in client.get("/api/workouts").json()}
+    assert client.post("/api/plan/clear", json={"start": today.isoformat(), "end": "2000-01-01"}).status_code == 400
+
+    # Never someone else's.
+    client.post("/api/logout")
+    _as(client, "other-clearer@example.com")
+    client.post("/api/plan/clear", json={"start": "2000-01-01", "delete": True})
+    client.post("/api/logout")
+    _as(client, "clearer@example.com")
+    assert plan() == [ids[0]]

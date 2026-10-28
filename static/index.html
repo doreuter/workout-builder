@@ -67,7 +67,15 @@
     <aside id="sidebar" class="sidebar">
       <button class="primary wide" id="new-btn">+ New workout</button>
       <button class="wide import-btn" id="import-btn">Import workout</button>
-      <ul id="workout-list" class="workout-list"></ul>
+      <div class="list-tools">
+        <input id="list-search" type="search" placeholder="Search" aria-label="Search workouts">
+        <select id="list-sport" aria-label="Show">
+          <option value="">All</option>
+          <option value="cycling">Rides</option>
+          <option value="running">Runs</option>
+        </select>
+      </div>
+      <div id="workout-list" class="workout-groups"></div>
     </aside>
 
     <section class="plan" id="plan" hidden>
@@ -81,6 +89,7 @@
             <button type="button" id="p-prev" aria-label="Earlier weeks">‹</button>
             <button type="button" id="p-today">This week</button>
             <button type="button" id="p-next" aria-label="Later weeks">›</button>
+            <button type="button" id="p-clear-open">Clear…</button>
           </div>
         </div>
         <p class="r-error" id="p-error" role="alert" hidden></p>
@@ -272,6 +281,27 @@
           <p id="restore-msg" class="small" hidden></p>
         </div>
       </section>
+    </form>
+  </dialog>
+
+  <dialog id="plan-clear">
+    <form method="dialog" class="clear-dialog">
+      <h2>Clear the calendar</h2>
+      <fieldset>
+        <legend>Which workouts</legend>
+        <label class="choice"><input type="radio" name="scope" value="shown" checked> <span id="clear-shown-label">The two weeks shown</span></label>
+        <label class="choice"><input type="radio" name="scope" value="future"> Everything from today on</label>
+      </fieldset>
+      <fieldset>
+        <legend>What happens to them</legend>
+        <label class="choice"><input type="radio" name="action" value="keep" checked> Keep them in the Library, just without a date</label>
+        <label class="choice"><input type="radio" name="action" value="delete"> Delete them</label>
+      </fieldset>
+      <p id="clear-msg" class="error small" hidden></p>
+      <div class="row">
+        <button value="cancel" formnovalidate>Cancel</button>
+        <button type="button" class="primary" id="clear-confirm">Clear</button>
+      </div>
     </form>
   </dialog>
 
