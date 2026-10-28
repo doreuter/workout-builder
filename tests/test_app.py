@@ -134,7 +134,7 @@ def test_accounts_and_chat_flow(client):
     assert client.get("/api/me").status_code == 401
     r = client.post("/api/register", json={"email": "Rider@Example.com", "password": "longenough"})
     assert r.status_code == 200 and r.json()["email"] == "rider@example.com"
-    client.put("/api/me/profile", json={"ftp": 250, "threshold_pace_s_per_km": 270, "max_hr": None})
+    client.put("/api/me/profile", json={"ftp": 250, "threshold_pace_s_per_km": 270})
 
     wid = client.post("/api/workouts").json()["id"]
     view = client.post(f"/api/workouts/{wid}/chat", json={"message": "4x8 threshold"}).json()
@@ -530,6 +530,13 @@ class FakeGarmin:
                 for d in self._range(start_date, end_date) if d.toordinal() % 2 == 0]
         return acts[start:start + limit]
 
+    def get_heart_rate_zones(self):
+        return [{"sport": "DEFAULT", "lactateThresholdHeartRateUsed": 171, "maxHeartRateUsed": 191},
+                {"sport": "CYCLING", "lactateThresholdHeartRateUsed": 179, "maxHeartRateUsed": 190}]
+
+    def get_activity(self, activity_id):
+        return {"activityId": activity_id, "summaryDTO": {"functionalThresholdPower": 360.0, "normalizedPower": 230}}
+
     files = {}  # activity id -> original file bytes; anything else gets a file without a recovery time
     downloads = 0
 
@@ -686,6 +693,42 @@ def test_recovery_time_on_dashboard_and_in_chat(client, garmin_owner, monkeypatc
     client.post(f"/api/workouts/{wid}/chat", json={"message": "What should I ride today?"})
     context = _last_user_turn(client)[0]["text"]
     assert "Recovery time (Garmin's own" in context and "34 h left, yellow" in context
+
+
+def test_thresholds_from_garmin_and_in_settings(client, garmin_owner, monkeypatch):
+    monkeypatch.setattr(garmin, "_client", lambda: FakeGarmin(_date.today()))
+    client.get("/api/readiness?refresh=1")  # stores the rides the FTP is read from
+    assert client.get("/api/me/garmin-thresholds").json() == {"ftp": 360, "lthr_run": 171, "lthr_bike": 179}
+    me = client.put("/api/me/profile", json={"ftp": 360, "threshold_pace_s_per_km": 285,
+                                             "lthr_run": 171, "lthr_bike": 179}).json()
+    assert "max_hr" not in me
+    assert (me["lthr_run"], me["lthr_bike"], me["threshold_pace_s_per_km"]) == (171, 179, 285)
+    assert client.put("/api/me/profile", json={"lthr_run": 20}).status_code == 422
+
+    wid = client.post("/api/workouts").json()["id"]
+    client.post(f"/api/workouts/{wid}/chat", json={"message": "Threshold intervals please"})
+    context = _last_user_turn(client)[0]["text"]
+    assert "cycling threshold HR 179 bpm" in context and "running threshold pace 4:45 /km" in context
+    assert "max HR" not in context
+
+    client.post("/api/logout")
+    client.post("/api/register", json={"email": "nogarmin@example.com", "password": "longenough"})
+    assert client.get("/api/me/garmin-thresholds").status_code == 400
+
+
+def test_runs_keep_pace_and_gap(client, garmin_owner, monkeypatch):
+    fake = FakeGarmin(_date.today())
+    original = fake.search_activities
+
+    def with_runs(start, limit, start_date, end_date):
+        acts = original(start, limit, start_date, end_date)
+        return [{**a, "activityType": {"typeKey": "running"}, "averageSpeed": 2.804, "avgGradeAdjustedSpeed": 2.849}
+                if i == 0 else a for i, a in enumerate(acts)]
+    fake.search_activities = with_runs
+    monkeypatch.setattr(garmin, "_client", lambda: fake)
+    acts = client.get("/api/readiness?refresh=1").json()["activities"]
+    run = next(a for a in acts if a["type_key"] == "running")
+    assert run["avg_speed"] == 2.804 and run["gap_speed"] == 2.849 and run["activity_id"]
 
 
 def test_readiness_drops_after_a_bad_night(client, garmin_owner, monkeypatch):

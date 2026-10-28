@@ -89,8 +89,13 @@ def _profile_text(user) -> str:
     parts = []
     if user["ftp"]:
         parts.append(f"FTP {user['ftp']} W")
-    if user["max_hr"]:
-        parts.append(f"max HR {user['max_hr']} bpm")
+    if user["lthr_bike"]:
+        parts.append(f"cycling threshold HR {user['lthr_bike']} bpm")
+    if user["lthr_run"]:
+        parts.append(f"running threshold HR {user['lthr_run']} bpm")
+    if user["threshold_pace_s_per_km"]:
+        p = user["threshold_pace_s_per_km"]
+        parts.append(f"running threshold pace {p // 60}:{p % 60:02d} /km")
     return "Athlete profile: " + (", ".join(parts) if parts else "not set (use relative intensities only).")
 
 

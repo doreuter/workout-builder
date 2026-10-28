@@ -83,7 +83,7 @@ chat message ──► Claude calls the set_workout tool
 ```
 
 - **Workout format** (`app/workout.py`): steps of type warmup / cooldown / steady / ramp / rest / free, plus `repeat` blocks. Intensity is a fraction of FTP.
-- **Accounts** (`app/auth.py`, `app/db.py`): email and password (scrypt-hashed), signed session cookie, SQLite in `data/app.db`. Each user's profile holds FTP and max HR.
+- **Accounts** (`app/auth.py`, `app/db.py`): email and password (scrypt-hashed), signed session cookie, SQLite in `data/app.db`. Each user's profile holds cycling FTP, running threshold pace, and cycling and running threshold heart rate; Claude gets them with every message. With Garmin connected, **Fetch from Garmin** in Settings fills in FTP (from the latest ride with power) and both threshold heart rates (from Garmin's heart-rate zones). Garmin's Personal API doesn't include threshold pace, so that one is entered by hand.
 - **Chat history** is stored per workout and only ever appended to, so follow-up edits ("make the intervals longer") keep their context.
 
 ## Exports
@@ -127,6 +127,8 @@ It uses the [Garmin Connect Personal API](https://developer.garmin.com/gc-develo
 The app exchanges the key for a 24-hour token (Garmin's official `garmin-connect-personal-api-python` client), backfills 60 days on the first visit, and then re-syncs at most every 3 hours (or with **Refresh from Garmin**).
 
 **The readiness score is the app's own estimate** (`app/readiness.py`), because the Personal API doesn't include Garmin's Training Readiness or training status. Weights: HRV 25 %, sleep 20 %, Garmin's recovery time 20 %, resting heart rate 10 %, Body Battery 15 %, training load 10 % (7-day vs 28-day load). Recovery time scores 100 at 0 h, 75 at 15 h, 40 at 36 h and 0 at 72 h; while it's over 36 h the whole score is capped at 54. Each part shows how it was scored.
+
+**Recent activities** link to Garmin Connect and show NP for rides and average pace with grade-adjusted pace (GAP) for runs. Garmin calculates TSS only for rides, so the table leaves TSS out and shows Garmin's training load for every sport.
 
 **Recovery time is Garmin's own.** The API's activity summaries don't include it, but the watch or Edge writes
 it into each original activity file (an undocumented summary message; `app/fitmeta.py`). On each sync the app

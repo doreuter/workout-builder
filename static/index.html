@@ -132,7 +132,7 @@
         <h2 class="r-section">Recent activities</h2>
         <div class="card r-acts-wrap">
           <table class="r-acts">
-            <thead><tr><th>Date</th><th>Activity</th><th>Time</th><th>NP</th><th>TSS</th><th>Load</th><th>Effect</th><th>Recovery</th></tr></thead>
+            <thead><tr><th>Date</th><th>Activity</th><th>Time</th><th>Intensity</th><th>Load</th><th>Effect</th><th>Recovery</th></tr></thead>
             <tbody id="r-acts"></tbody>
           </table>
         </div>
@@ -194,10 +194,16 @@
     <form method="dialog" id="settings-form" class="settings-form">
       <h2>Settings</h2>
       <p class="muted small">Used to show watts next to percentages and to give Claude your numbers.</p>
-      <label>FTP (watts) <input name="ftp" type="number" min="50" max="700" placeholder="e.g. 250"></label>
-      <!-- Threshold pace returns with running in v2; the hidden field keeps the saved value. -->
-      <input name="pace" type="hidden">
-      <label>Max heart rate (bpm) <input name="max_hr" type="number" min="100" max="230" placeholder="e.g. 188"></label>
+      <div class="garmin-fetch" id="garmin-fetch" hidden>
+        <button type="button" id="garmin-fetch-btn">Fetch from Garmin</button>
+        <p class="muted small" id="garmin-fetch-msg">Fills in FTP and threshold heart rates. Check them, then save.</p>
+      </div>
+      <div class="settings-grid">
+        <label>Cycling FTP (watts) <input name="ftp" type="number" min="50" max="700" placeholder="e.g. 250"></label>
+        <label>Cycling threshold HR (bpm) <input name="lthr_bike" type="number" min="80" max="230" placeholder="e.g. 172"></label>
+        <label>Running threshold pace (min/km) <input name="pace" inputmode="numeric" pattern="\d{1,2}:\d{2}" placeholder="e.g. 4:45"></label>
+        <label>Running threshold HR (bpm) <input name="lthr_run" type="number" min="80" max="230" placeholder="e.g. 168"></label>
+      </div>
       <p id="settings-error" class="error small" hidden></p>
       <div class="row">
         <button value="cancel" formnovalidate>Cancel</button>

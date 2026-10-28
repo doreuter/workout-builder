@@ -988,19 +988,29 @@ function renderActivities(acts) {
   body.replaceChildren();
   if (!acts.length) {
     const tr = el("tr");
-    const td = el("td", { colspan: "8", class: "muted" }, "No activities in the last 14 days.");
+    const td = el("td", { colspan: "7", class: "muted" }, "No activities in the last 14 days.");
     tr.append(td);
     body.append(tr);
     return;
   }
   const n = (v, digits = 0) => (v == null ? "–" : Number(v).toFixed(digits));
+  const pace = (speed) => fmtPace(Math.round(1000 / speed)).replace(" /km", "");
   for (const a of acts) {
     const tr = el("tr");
     const effect = a.te_label ? a.te_label.toLowerCase().replace(/_/g, " ") : (a.aerobic_te != null ? `aerobic ${n(a.aerobic_te, 1)}` : "–");
-    [fmtDay(a.day), a.name || a.type_key, a.duration_s ? fmtDuration(Math.round(a.duration_s)) : "–",
-      a.norm_power ? `${n(a.norm_power)} W` : "–", n(a.tss), n(a.training_load), effect,
-      a.recovery_min ? `${Math.round(a.recovery_min / 60)} h` : "–"]
-      .forEach((v) => tr.append(el("td", {}, v)));
+    const running = (a.type_key || "").includes("running");
+    const intensity = running && a.avg_speed > 0
+      ? `${pace(a.avg_speed)} /km${a.gap_speed > 0 ? ` · GAP ${pace(a.gap_speed)}` : ""}`
+      : a.norm_power ? `${n(a.norm_power)} W NP` : "–";
+    const link = el("a", { href: `https://connect.garmin.com/modern/activity/${a.activity_id}`, target: "_blank", rel: "noopener" },
+      a.name || a.type_key || "Activity");
+    const cells = [fmtDay(a.day), link, a.duration_s ? fmtDuration(Math.round(a.duration_s)) : "–", intensity,
+      n(a.training_load), effect, a.recovery_min ? `${Math.round(a.recovery_min / 60)} h` : "–"];
+    cells.forEach((v) => {
+      const td = el("td");
+      td.append(v);
+      tr.append(td);
+    });
     body.append(tr);
   }
 }
@@ -1012,7 +1022,11 @@ $("#settings-btn").addEventListener("click", () => {
   f.ftp.value = state.user.ftp ?? "";
   const p = state.user.threshold_pace_s_per_km;
   f.pace.value = p ? `${Math.floor(p / 60)}:${String(p % 60).padStart(2, "0")}` : "";
-  f.max_hr.value = state.user.max_hr ?? "";
+  f.lthr_run.value = state.user.lthr_run ?? "";
+  f.lthr_bike.value = state.user.lthr_bike ?? "";
+  f.querySelectorAll(".filled").forEach((i) => i.classList.remove("filled"));
+  $("#garmin-fetch").hidden = !state.user.garmin;
+  $("#garmin-fetch-msg").textContent = "Fills in FTP and threshold heart rates. Check them, then save.";
   $("#settings-error").hidden = true;
   renderZwiftSettings();
   $("#garmin-status-box").hidden = !state.user.garmin_status;
@@ -1118,18 +1132,50 @@ $("#invite-create").addEventListener("click", async () => {
   }
 });
 
+$("#garmin-fetch-btn").addEventListener("click", async () => {
+  const f = $("#settings-form");
+  const btn = $("#garmin-fetch-btn");
+  const msg = $("#garmin-fetch-msg");
+  btn.disabled = true;
+  msg.textContent = "Asking Garmin…";
+  try {
+    const t = await api("/api/me/garmin-thresholds");
+    const filled = [];
+    for (const [field, label] of [["ftp", "FTP"], ["lthr_bike", "cycling threshold HR"], ["lthr_run", "running threshold HR"]]) {
+      if (t[field] == null) continue;
+      f[field].value = t[field];
+      f[field].classList.add("filled");
+      filled.push(label);
+    }
+    msg.textContent = filled.length
+      ? `Filled in ${filled.join(", ")} from Garmin. Garmin doesn't share threshold pace, so enter that yourself. Save to keep them.`
+      : "Garmin had no FTP or threshold heart rates for you yet.";
+  } catch (err) {
+    msg.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 $("#settings-save").addEventListener("click", async (e) => {
   e.preventDefault();
   const f = $("#settings-form");
   if (!f.reportValidity()) return;
   const pace = f.pace.value ? parsePace(f.pace.value) : null;
+  if (f.pace.value && (pace == null || pace < 120 || pace > 900)) {
+    $("#settings-error").textContent = "Enter the threshold pace as minutes:seconds per km, e.g. 4:45.";
+    $("#settings-error").hidden = false;
+    return;
+  }
+  const num = (input) => (input.value ? Number(input.value) : null);
   try {
     state.user = await api("/api/me/profile", {
       method: "PUT",
       body: {
         ftp: f.ftp.value ? Number(f.ftp.value) : null,
         threshold_pace_s_per_km: pace,
-        max_hr: f.max_hr.value ? Number(f.max_hr.value) : null,
+        lthr_run: num(f.lthr_run),
+        lthr_bike: num(f.lthr_bike),
       },
     });
     $("#settings").close();

@@ -322,6 +322,8 @@ button.danger { background: var(--error); border-color: var(--error); color: #ff
 .r-acts th { text-align: left; font-weight: 400; color: var(--muted); font-size: .75rem; padding: 0 .6rem .5rem 0; }
 .r-acts td { font-family: var(--mono); font-size: .82rem; padding: .45rem .6rem .45rem 0; border-top: 1px solid var(--border); white-space: nowrap; }
 .r-acts td:nth-child(2) { white-space: normal; }
+.r-acts a { color: inherit; text-decoration-color: var(--muted); text-underline-offset: 2px; }
+.r-acts a:hover { color: var(--ice); }
 
 @media (max-width: 1300px) {
   .r-top { grid-template-columns: 1fr 1fr; }
@@ -341,6 +343,11 @@ dialog {
 dialog::backdrop { background: rgb(0 0 0 / .4); }
 .settings-form { padding: 1.4rem; display: grid; gap: .9rem; }
 .settings-form p { margin: 0; }
+.settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .9rem; align-items: end; }
+.garmin-fetch { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+.garmin-fetch p { flex: 1 1 12rem; }
+.filled { outline: 2px solid var(--z3); outline-offset: 1px; }
+@media (max-width: 480px) { .settings-grid { grid-template-columns: 1fr; } }
 .row { display: flex; gap: .5rem; justify-content: flex-end; }
 
 /* small screens */

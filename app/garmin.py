@@ -90,6 +90,11 @@ def sync(user, *, force: bool = False, today: date | None = None, client=None) -
             _sync_sleep(client, user["id"], lo, hi)
             _sync_daily(client, user["id"], lo, hi)
             _sync_activities(client, user["id"], lo, hi)
+        # Runs stored before pace and GAP were kept: read their summaries once more.
+        stale = db.garmin_oldest_run_without_speed(user["id"], (today - timedelta(days=BACKFILL_DAYS)).isoformat())
+        if stale and date.fromisoformat(stale) < start:
+            for lo, hi in _chunks(date.fromisoformat(stale), start - timedelta(days=1)):
+                _sync_activities(client, user["id"], lo, hi)
         _sync_recovery(client, user["id"], today - timedelta(days=RECOVERY_DAYS))
     except GarminError as e:
         db.set_garmin_sync_state(user["id"], None, str(e))
@@ -191,6 +196,8 @@ def _sync_activities(client, user_id: int, lo: date, hi: date) -> None:
                 "te_label": a.get("trainingEffectLabel"),
                 "vo2max": a.get("vO2MaxValue"),
                 "avg_hr": a.get("averageHR"),
+                "avg_speed": a.get("averageSpeed"),
+                "gap_speed": a.get("avgGradeAdjustedSpeed"),
             })
         if len(page) < limit:
             break
@@ -211,3 +218,26 @@ def _sync_recovery(client, user_id: int, since: date) -> None:
         found = fitmeta.recovery(data)
         minutes, start = found if found else (None, None)
         db.set_garmin_recovery(activity_id, minutes, start.isoformat() if start else None)
+
+
+def thresholds(user, client=None) -> dict:
+    """FTP and threshold heart rates as Garmin has them, for Settings to offer. Threshold pace isn't
+    in the Personal API (its activity field stays empty), so it's not here."""
+    if not is_owner(user):
+        raise GarminError("Garmin isn't connected for this account.")
+    try:
+        client = client or _client()
+        out = {"ftp": None, "lthr_run": None, "lthr_bike": None}
+        zones = client.get_heart_rate_zones() or []
+        by_sport = {z.get("sport"): z.get("lactateThresholdHeartRateUsed") for z in zones if isinstance(z, dict)}
+        out["lthr_run"] = by_sport.get("RUNNING") or by_sport.get("DEFAULT")
+        out["lthr_bike"] = by_sport.get("CYCLING") or by_sport.get("DEFAULT")
+        ride = db.garmin_latest_ride_with_power(user["id"])
+        if ride:
+            ftp = _get(client.get_activity(ride), "summaryDTO", "functionalThresholdPower")
+            out["ftp"] = round(ftp) if ftp else None
+    except GarminError:
+        raise
+    except Exception as e:
+        raise GarminError(f"Couldn't read your thresholds from Garmin ({getattr(e, 'status_code', '') or type(e).__name__}).") from e
+    return {k: (round(v) if v else None) for k, v in out.items()}

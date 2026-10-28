@@ -83,7 +83,8 @@ class Registration(Credentials):
 class Profile(BaseModel):
     ftp: int | None = Field(default=None, ge=50, le=700)
     threshold_pace_s_per_km: int | None = Field(default=None, ge=120, le=900)
-    max_hr: int | None = Field(default=None, ge=100, le=230)
+    lthr_run: int | None = Field(default=None, ge=80, le=230)
+    lthr_bike: int | None = Field(default=None, ge=80, le=230)
 
 
 def _is_admin(user) -> bool:
@@ -95,7 +96,8 @@ def _user_json(user) -> dict:
         "email": user["email"],
         "ftp": user["ftp"],
         "threshold_pace_s_per_km": user["threshold_pace_s_per_km"],
-        "max_hr": user["max_hr"],
+        "lthr_run": user["lthr_run"],
+        "lthr_bike": user["lthr_bike"],
         "is_admin": _is_admin(user),
         "messages_left_today": _messages_left(user),
         "garmin": garmin.is_owner(user),
@@ -167,8 +169,17 @@ def me(user=Depends(current_user)):
 
 @app.put("/api/me/profile")
 def update_profile(body: Profile, user=Depends(current_user)):
-    db.update_profile(user["id"], body.ftp, body.threshold_pace_s_per_km, body.max_hr)
+    db.update_profile(user["id"], body.ftp, body.threshold_pace_s_per_km, body.lthr_run, body.lthr_bike)
     return _user_json(db.get_user(user["id"]))
+
+
+@app.get("/api/me/garmin-thresholds")
+def garmin_thresholds(user=Depends(current_user)):
+    """Garmin's FTP and threshold heart rates, for the Settings form to fill in (not saved here)."""
+    try:
+        return garmin.thresholds(user)
+    except garmin.GarminError as e:
+        raise HTTPException(400, str(e))
 
 
 # --- your data: export and delete -------------------------------------------------

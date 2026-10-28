@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS users (
     ftp INTEGER,
     threshold_pace_s_per_km INTEGER,
     max_hr INTEGER,
+    lthr_run INTEGER,   -- threshold heart rates (bpm)
+    lthr_bike INTEGER,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS workouts (
@@ -79,6 +81,8 @@ CREATE TABLE IF NOT EXISTS garmin_activities (
     te_label TEXT,
     vo2max REAL,
     avg_hr REAL,
+    avg_speed REAL,  -- m/s
+    gap_speed REAL,  -- grade-adjusted, m/s (runs)
     recovery_min INTEGER,  -- Garmin's recovery time from the activity file...
     recovery_from TEXT,    -- ...counted down from this moment (UTC)
     recovery_checked INTEGER
@@ -122,9 +126,14 @@ def init_db() -> None:
             # Name of the Zwift file a workout was imported from; Send to Zwift updates that file.
             conn.execute("ALTER TABLE workouts ADD COLUMN source_filename TEXT")
         columns = {r["name"] for r in conn.execute("PRAGMA table_info(garmin_activities)")}
-        for name, kind in (("recovery_min", "INTEGER"), ("recovery_from", "TEXT"), ("recovery_checked", "INTEGER")):
+        for name, kind in (("recovery_min", "INTEGER"), ("recovery_from", "TEXT"), ("recovery_checked", "INTEGER"),
+                           ("avg_speed", "REAL"), ("gap_speed", "REAL")):
             if name not in columns:
                 conn.execute(f"ALTER TABLE garmin_activities ADD COLUMN {name} {kind}")
+        columns = {r["name"] for r in conn.execute("PRAGMA table_info(users)")}
+        for name in ("lthr_run", "lthr_bike"):
+            if name not in columns:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {name} INTEGER")
 
 
 @contextmanager
@@ -159,11 +168,12 @@ def get_user(user_id: int):
         return conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
 
 
-def update_profile(user_id: int, ftp, threshold_pace_s_per_km, max_hr) -> None:
+def update_profile(user_id: int, ftp, threshold_pace_s_per_km, lthr_run=None, lthr_bike=None) -> None:
+    # max_hr is no longer edited (threshold heart rates replaced it); a stored value is kept as it was.
     with connect() as conn:
         conn.execute(
-            "UPDATE users SET ftp = ?, threshold_pace_s_per_km = ?, max_hr = ? WHERE id = ?",
-            (ftp, threshold_pace_s_per_km, max_hr, user_id),
+            "UPDATE users SET ftp = ?, threshold_pace_s_per_km = ?, lthr_run = ?, lthr_bike = ? WHERE id = ?",
+            (ftp, threshold_pace_s_per_km, lthr_run, lthr_bike, user_id),
         )
 
 
@@ -185,7 +195,7 @@ def export_user(user_id: int) -> dict:
         def rows(sql):
             return [dict(r) for r in conn.execute(sql, (user_id,)).fetchall()]
         user = dict(conn.execute(
-            "SELECT email, ftp, threshold_pace_s_per_km, max_hr, created_at FROM users WHERE id = ?", (user_id,)
+            "SELECT email, ftp, threshold_pace_s_per_km, max_hr, lthr_run, lthr_bike, created_at FROM users WHERE id = ?", (user_id,)
         ).fetchone())
         return {
             "account": user,
@@ -270,6 +280,7 @@ GARMIN_DAY_FIELDS = (
 GARMIN_ACTIVITY_FIELDS = (
     "day", "start_local", "name", "type_key", "duration_s", "avg_power", "norm_power", "tss",
     "intensity_factor", "training_load", "aerobic_te", "anaerobic_te", "te_label", "vo2max", "avg_hr",
+    "avg_speed", "gap_speed",
 )
 
 
@@ -297,6 +308,28 @@ def upsert_garmin_activity(user_id: int, activity_id: int, values: dict) -> None
                 ON CONFLICT (activity_id) DO UPDATE SET {", ".join(f"{c} = excluded.{c}" for c in cols)}""",
             (activity_id, user_id, *(values.get(c) for c in cols)),
         )
+
+
+def garmin_oldest_run_without_speed(user_id: int, since: str) -> str | None:
+    """Day of the oldest run stored before pace was kept, so the next sync re-reads from there."""
+    with connect() as conn:
+        row = conn.execute(
+            """SELECT MIN(day) AS day FROM garmin_activities
+               WHERE user_id = ? AND day >= ? AND type_key LIKE '%running%' AND avg_speed IS NULL""",
+            (user_id, since),
+        ).fetchone()
+    return row["day"]
+
+
+def garmin_latest_ride_with_power(user_id: int) -> int | None:
+    with connect() as conn:
+        row = conn.execute(
+            """SELECT activity_id FROM garmin_activities WHERE user_id = ? AND norm_power IS NOT NULL
+               AND (type_key LIKE '%cycling%' OR type_key LIKE '%biking%' OR type_key LIKE '%ride%')
+               ORDER BY start_local DESC LIMIT 1""",
+            (user_id,),
+        ).fetchone()
+    return row["activity_id"] if row else None
 
 
 def garmin_activities_without_recovery(user_id: int, since: str) -> list[int]:
