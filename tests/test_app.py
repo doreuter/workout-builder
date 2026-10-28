@@ -672,6 +672,74 @@ def test_endurance_ceiling_saves_and_reaches_claude(client):
     assert client.put("/api/me/profile", json={"endurance_ceiling_pct": 10}).status_code == 422
 
 
+# --- outdoor route suggestions (OpenRouteService) --------------------------------------------
+
+def _ors(eles, step_m=100, lat=47.05, lon=8.55):
+    """A minimal ORS GeoJSON response: points stepping east with the given elevations."""
+    import math
+    dlon = step_m / (111320 * math.cos(math.radians(lat)))
+    coords = [[lon + i * dlon, lat, float(e)] for i, e in enumerate(eles)]
+    return {"features": [{"geometry": {"type": "LineString", "coordinates": coords}, "properties": {}}]}
+
+HILLY = _ors([500 + i * 10 for i in range(41)])  # ~4 km, +400 m, ~10%
+FLAT = _ors([500 for _ in range(41)])            # ~4 km, no climb
+
+CRIT = {"name": "Crit", "sport": "cycling", "steps": [
+    {"type": "warmup", "duration_s": 900, "intensity": 0.5, "intensity_end": 0.85},
+    {"type": "repeat", "count": 10, "steps": [
+        {"type": "steady", "duration_s": 30, "intensity": 1.2},
+        {"type": "rest", "duration_s": 60, "intensity": 0.5}]},
+    {"type": "cooldown", "duration_s": 600, "intensity": 0.6, "intensity_end": 0.4}]}
+
+
+def test_route_profile_and_climb_detection():
+    from app import routes
+    prof = routes.profile(HILLY["features"][0])
+    assert 3800 <= prof["distance_m"] <= 4200
+    assert prof["ascent_m"] >= 380 and prof["climbs"]
+    c = prof["climbs"][0]
+    assert c["gain_m"] >= 380 and 9 <= c["grade"] <= 11 and c["minutes"] > 0
+    assert routes.profile(FLAT["features"][0])["climbs"] == []
+
+
+def test_route_scoring_prefers_terrain_that_matches():
+    from app import routes
+    hilly, flat, target = routes.profile(HILLY["features"][0]), routes.profile(FLAT["features"][0]), 4000
+    sustained = routes.demand(THRESHOLD, 270)   # 8-min threshold efforts -> wants a climb
+    assert routes.score(hilly, sustained, target) > routes.score(flat, sustained, target)
+    crit = routes.demand(CRIT, 270)             # 30-s reps -> wants flat
+    assert routes.score(flat, crit, target) > routes.score(hilly, crit, target)
+
+
+def test_suggest_route_picks_the_best_loop(monkeypatch):
+    from app import routes
+    loops = {1: HILLY, 2: FLAT, 3: FLAT}
+    monkeypatch.setattr(routes, "_directions", lambda lat, lon, length, seed: loops[seed])
+    best = routes.suggest_route(THRESHOLD, 270, 47.05, 8.55, distance_km=4, seeds=(1, 2, 3))
+    assert best["seed"] == 1 and "climb" in best["summary"]
+    assert best["path"] and best["distance_m"] > 0 and "score" in best
+
+
+def test_route_endpoint(client, monkeypatch):
+    from app import routes
+    client.post("/api/register", json={"email": "loop@example.com", "password": "longenough"})
+    client.put("/api/me/profile", json={"ftp": 250, "threshold_pace_s_per_km": 270})
+    wid = client.post("/api/workouts").json()["id"]
+    client.post(f"/api/workouts/{wid}/chat", json={"message": "4x8 threshold"})  # a cycling workout
+    monkeypatch.delenv("ORS_API_KEY", raising=False)
+    assert client.post(f"/api/workouts/{wid}/route", json={"lat": 47.05, "lon": 8.55}).status_code == 503
+    monkeypatch.setenv("ORS_API_KEY", "test-key")
+    monkeypatch.setattr(routes, "_directions", lambda lat, lon, length, seed: HILLY)
+    r = client.post(f"/api/workouts/{wid}/route", json={"lat": 47.05, "lon": 8.55})
+    assert r.status_code == 200 and "climb" in r.json()["summary"] and r.json()["path"]
+    # Cycling only for now.
+    uid = main.db.get_user_by_email("loop@example.com")["id"]
+    rwid = client.post("/api/workouts").json()["id"]
+    main.db.save_workout(uid, rwid, {"name": "Run", "sport": "running",
+                                     "steps": [{"type": "steady", "duration_s": 1800, "intensity": 0.8}]}, [])
+    assert client.post(f"/api/workouts/{rwid}/route", json={"lat": 47.05, "lon": 8.55}).status_code == 400
+
+
 def test_oversized_request_body_is_rejected(client):
     client.post("/api/register", json={"email": "big@example.com", "password": "longenough"})
     wid = client.post("/api/workouts").json()["id"]

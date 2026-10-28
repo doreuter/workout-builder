@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import backup, config, db, garmin, llm, mailer, maintenance, offsite, readiness, security, zwift
+from . import backup, config, db, garmin, llm, mailer, maintenance, offsite, readiness, routes, security, zwift
 from .auth import current_user, hash_password, start_session, verify_password
 from .exporters import ExportError, safe_filename, to_fit, to_zwo
 from .importers import MAX_ZWO_BYTES, ImportError_, from_fit, from_zwo
@@ -770,9 +770,34 @@ def export(workout_id: int, fmt: str, user=Depends(current_user)):
     return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
+class RouteIn(BaseModel):
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+    distance_km: float | None = Field(default=None, ge=5, le=120)
+
+
+@app.post("/api/workouts/{workout_id}/route")
+def suggest_route(workout_id: int, body: RouteIn, request: Request, user=Depends(current_user)):
+    """Suggest an outdoor loop near a start point that fits this (cycling) workout."""
+    if not routes.available():
+        raise HTTPException(503, "Route suggestions aren't set up on this server yet.")
+    row = _get_row(user, workout_id)
+    if not row["workout_json"]:
+        raise HTTPException(400, "This workout is empty.")
+    workout = json.loads(row["workout_json"])
+    if workout["sport"] != "cycling":
+        raise HTTPException(400, "Route suggestions are cycling-only for now.")
+    # Protect the shared ORS key: cap per user per day, on top of ORS's own free-tier limits.
+    security.check_rate(request, "route", limit=20, window_s=86400, key=f"user:{user['id']}")
+    try:
+        return routes.suggest_route(workout, user["threshold_pace_s_per_km"], body.lat, body.lon, body.distance_km)
+    except routes.RouteError as e:
+        raise HTTPException(502, str(e))
+
+
 @app.get("/api/integrations")
 def integrations(user=Depends(current_user)):
-    return {"zwift": zwift.status()}
+    return {"zwift": zwift.status(), "routes": routes.available()}
 
 
 @app.post("/api/workouts/{workout_id}/send/zwift")
