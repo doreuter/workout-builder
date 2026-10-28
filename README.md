@@ -134,7 +134,7 @@ The app exchanges the key for a 24-hour token (Garmin's official `garmin-connect
 it into each original activity file (an undocumented summary message; `app/fitmeta.py`). On each sync the app
 downloads the files of the last 14 days' activities once, keeps only that number and when it starts, and
 discards the file. The value is the device's total recovery time at the end of the activity, so it already
-includes earlier sessions; the app shows the one that ends last, counted down to now. A timeline card under "Last 30 days" shows each activity's recovery window over the last 14 days (sessions that didn't extend recovery are left out). Traffic light: green
+includes earlier sessions; the app shows the one that ends last, counted down to now. A timeline card under "Last 30 days" shows each activity's recovery window over the last 5 days (sessions that didn't extend recovery are left out). Traffic light: green
 under 15 h, yellow 15–36 h, red over 36 h. The device may still adjust it later (e.g. after sleep); the app
 only sees the value at the end of each activity. Today's score uses the hours left right now; past days use the value at about 7:00, and leave recovery out where the activity files weren't read. If Garmin changes the file format, the card disappears
 rather than showing a wrong number.

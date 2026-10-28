@@ -855,18 +855,18 @@ function renderTrends(trend, recovery, windows) {
 
 const HOUR = 3600 * 1000;
 
-// Recovery windows of the last 14 days: one bar per activity from its end until its recovery time is up,
+// Recovery windows of the last 5 days: one bar per activity from its end until its recovery time is up,
 // stacked into as few rows as possible, with a line at "now".
 function recoveryTimeline(rec, windows) {
   const card = el("article", { class: "card r-chart r-wide" });
-  card.append(el("h3", {}, "Recovery time, last 14 days"));
+  card.append(el("h3", {}, "Recovery time, last 5 days"));
   const line = el("p", { class: "r-latest" });
   line.append(el("span", { class: `r-dot small light-${rec.light}`, "aria-hidden": "true" }),
     `Now: ${rec.hours_left > 0 ? `${Math.round(rec.hours_left)} h left` : "recovered"} · ${rec.title.toLowerCase()}`);
   card.append(line);
 
   const now = Date.now();
-  const day0 = new Date(now - 13 * 24 * HOUR);
+  const day0 = new Date(now - 4 * 24 * HOUR);
   day0.setHours(0, 0, 0, 0);
   const t0 = day0.getTime();
   const t1 = Math.max(now, ...windows.map((w) => Date.parse(w.end))) + 2 * HOUR;
@@ -885,7 +885,7 @@ function recoveryTimeline(rec, windows) {
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", "Recovery windows of the last 14 days");
+  svg.setAttribute("aria-label", "Recovery windows of the last 5 days");
   const add = (tag, attrs, text) => {
     const node = document.createElementNS(SVG_NS, tag);
     for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
@@ -893,11 +893,10 @@ function recoveryTimeline(rec, windows) {
     svg.append(node);
     return node;
   };
-  const every = W < 400 ? 3 : 2;
-  for (let d = new Date(t0), i = 0; d.getTime() <= t1; d.setDate(d.getDate() + 1), i++) {
+  for (let d = new Date(t0); d.getTime() <= t1; d.setDate(d.getDate() + 1)) {
     const xd = x(d.getTime());
     add("line", { x1: xd, x2: xd, y1: padT, y2: H - padB, class: "gridline" });
-    if (i % every === 0) add("text", { x: xd + 2, y: H - 6, class: "axis-label" }, d.toLocaleDateString(undefined, { day: "numeric", month: "short" }));
+    add("text", { x: xd + 2, y: H - 6, class: "axis-label" }, d.toLocaleDateString(undefined, { day: "numeric", month: "short" }));
   }
 
   const tip = el("div", { class: "tooltip", hidden: "" });

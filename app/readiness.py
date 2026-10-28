@@ -220,7 +220,7 @@ def recovery(activities, now: datetime) -> dict | None:
     }
 
 
-def recovery_windows(activities, now: datetime, days: int = 14) -> list[dict]:
+def recovery_windows(activities, now: datetime, days: int = 5) -> list[dict]:
     """Each activity's recovery window (end of activity until its recovery time is up) for the timeline.
     The value in a file is the device's total, so an easy session during a longer window just repeats
     the time already left; windows that don't extend recovery by more than an hour are left out."""

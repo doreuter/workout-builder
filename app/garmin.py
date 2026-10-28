@@ -16,7 +16,7 @@ BACKFILL_DAYS = 60
 RESYNC_DAYS = 3  # re-read the last few days: sleep and HRV can arrive after the day itself
 MIN_SYNC_INTERVAL = timedelta(hours=3)
 CHUNK_DAYS = 28  # keep each range request modest
-RECOVERY_DAYS = 14  # files read for recovery time: 4 days would do for today, 14 feed the timeline
+RECOVERY_DAYS = 14  # files read for recovery time: 4 days would do for today, 14 give past scores theirs
 
 
 class GarminError(RuntimeError):
