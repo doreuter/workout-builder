@@ -126,7 +126,7 @@ It uses the [Garmin Connect Personal API](https://developer.garmin.com/gc-develo
 
 The app exchanges the key for a 24-hour token (Garmin's official `garmin-connect-personal-api-python` client), backfills 60 days on the first visit, and then re-syncs at most every 3 hours (or with **Refresh from Garmin**).
 
-**The readiness score is the app's own estimate** (`app/readiness.py`), because the Personal API doesn't include Garmin's Training Readiness or training status. Weights: HRV 30 %, sleep 25 %, resting heart rate 15 %, Body Battery 15 %, training load 15 % (7-day vs 28-day load). Each part shows how it was scored.
+**The readiness score is the app's own estimate** (`app/readiness.py`), because the Personal API doesn't include Garmin's Training Readiness or training status. Weights: HRV 25 %, sleep 20 %, Garmin's recovery time 20 %, resting heart rate 10 %, Body Battery 15 %, training load 10 % (7-day vs 28-day load). Recovery time scores 100 at 0 h, 75 at 15 h, 40 at 36 h and 0 at 72 h; while it's over 36 h the whole score is capped at 54. Each part shows how it was scored.
 
 **Recovery time is Garmin's own.** The API's activity summaries don't include it, but the watch or Edge writes
 it into each original activity file (an undocumented summary message; `app/fitmeta.py`). On each sync the app
@@ -134,7 +134,7 @@ downloads the files of the last 5 days' activities once, keeps only that number 
 discards the file. The value is the device's total recovery time at the end of the activity, so it already
 includes earlier sessions; the app shows the one that ends last, counted down to now. Traffic light: green
 under 15 h, yellow 15–36 h, red over 36 h. The device may still adjust it later (e.g. after sleep); the app
-only sees the value at the end of each activity. If Garmin changes the file format, the card disappears
+only sees the value at the end of each activity. Today's score uses the hours left right now; past days use the value at about 7:00, and leave recovery out where the activity files weren't read. If Garmin changes the file format, the card disappears
 rather than showing a wrong number.
 
 ## Not done yet (v2)

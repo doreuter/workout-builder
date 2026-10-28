@@ -604,7 +604,7 @@ def test_recovery_time_is_read_from_activity_files():
 
 def _act(name, day, recovery_min, ended):
     return {"name": name, "type_key": "indoor_cycling", "day": day, "recovery_min": recovery_min,
-            "recovery_from": ended.isoformat() if ended else None}
+            "recovery_from": ended.isoformat() if ended else None, "recovery_checked": 1}
 
 
 def test_recovery_countdown_and_traffic_light():
@@ -622,6 +622,45 @@ def test_recovery_countdown_and_traffic_light():
     r = readiness.recovery([run, ride2], _dt(2026, 10, 24, 17, 40, tzinfo=_tz.utc))
     assert r["activity"]["day"] == "2026-10-24" and r["hours_left"] == 28.2 and r["light"] == "yellow"
     assert readiness.recovery([_act("Yoga", "2026-10-23", None, None)], _dt.now(_tz.utc)) is None
+
+
+def _day(day, hrv=60, sleep_score=82, bb=85, rhr=48):
+    return {"day": day, "hrv_last_night": hrv, "hrv_weekly_avg": 61, "hrv_low_upper": 48, "hrv_balanced_low": 55,
+            "hrv_balanced_upper": 70, "sleep_seconds": 7.5 * 3600, "sleep_score": sleep_score, "bb_max": bb,
+            "resting_hr": rhr}
+
+
+def _load_act(day, rec_min=None, ended=None, checked=1):
+    return {**_act("Ride", day, rec_min, ended), "training_load": 80, "tss": 60, "recovery_checked": checked}
+
+
+def test_recovery_time_counts_in_the_readiness_score():
+    assert [readiness.recovery_points(h) for h in (0, 15, 34, 36, 54, 72, 90)] == [100, 75, 43, 40, 20, 0, 0]
+    assert abs(sum(readiness.WEIGHTS.values()) - 1) < 1e-9
+    today = _date(2026, 10, 28)
+    days = [_day((today - _td(days=i)).isoformat()) for i in range(10, -1, -1)]
+    hard = _dt(2026, 10, 27, 18, 47, tzinfo=_tz.utc)
+
+    # Yellow: recovery is one part of the score, no cap.
+    acts = [_load_act("2026-10-27", 2798, hard)]
+    data = readiness.build(days, acts, today, now=_dt(2026, 10, 28, 7, 17, tzinfo=_tz.utc))
+    rec = next(c for c in data["today"]["components"] if c["key"] == "recovery")
+    assert rec["score"] == 43 and rec["note"].startswith("34 h left from indoor cycling on 2026-10-27")
+    assert data["today"]["capped"] is False and data["today"]["score"] < 75
+
+    # Red: a great night can't lift the score above 54.
+    data = readiness.build(days, acts, today, now=_dt(2026, 10, 27, 20, 0, tzinfo=_tz.utc))  # 45 h left
+    t = data["today"]
+    assert t["capped"] is True and t["score"] == 54 and t["verdict"]["key"] == "easy"
+    assert "caps readiness at 54" in next(c for c in t["components"] if c["key"] == "recovery")["note"]
+
+    # Past days use the morning value; days whose recent files weren't read leave the part out.
+    trend = {p["day"]: p["readiness"] for p in data["trend"]}
+    unread = [_load_act("2026-10-25", checked=None)] + acts
+    data = readiness.build(days[:-1], unread, today - _td(days=1), now=_dt(2026, 10, 27, 20, 0, tzinfo=_tz.utc))
+    parts = {c["key"]: c for c in data["today"]["components"]}
+    assert data["today"]["day"] == "2026-10-27" and parts["recovery"]["score"] is None
+    assert trend["2026-10-20"] is not None
 
 
 def test_recovery_time_on_dashboard_and_in_chat(client, garmin_owner, monkeypatch):

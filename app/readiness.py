@@ -6,7 +6,8 @@ explains itself; the total is their weighted average (missing components are lef
 weights rescaled). It is an estimate, labelled as such in the UI - not Garmin's number.
 
 Recovery time is Garmin's own: the device writes it into each activity file (see fitmeta.py) and it is
-counted down from there.
+counted down from there. It is also one of the score's components, and while it's red (over 36 h left)
+the score is capped at 54, so a good night can't override a very hard session.
 """
 
 from __future__ import annotations
@@ -14,7 +15,11 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from statistics import median
 
-WEIGHTS = {"hrv": 0.30, "sleep": 0.25, "resting_hr": 0.15, "body_battery": 0.15, "load": 0.15}
+WEIGHTS = {"hrv": 0.25, "sleep": 0.20, "recovery": 0.20, "resting_hr": 0.10, "body_battery": 0.15, "load": 0.10}
+RECOVERY_POINTS = [(0, 100), (15, 75), (36, 40), (72, 0)]  # hours left -> points, linear in between
+RED_CAP = 54  # highest score while recovery is red: "Take it easy" at best
+MORNING_UTC = 6  # past days are scored with the recovery time left at about 7:00 Swiss time
+RECOVERY_WINDOW = timedelta(days=4)  # Garmin's recovery time never exceeds 4 days
 
 VERDICTS = [  # (minimum score, key, title, advice)
     (75, "ready", "Ready for intensity", "Good day for intervals or a hard session."),
@@ -132,26 +137,51 @@ def _load(summary: dict) -> dict | None:
     return {"score": round(_clamp(score)), "note": note}
 
 
-def score_day(row, history, loads: dict[str, float]) -> dict:
-    """Readiness for one day. `history` = earlier days (for baselines)."""
+def recovery_points(hours_left: float) -> int:
+    for (h0, p0), (h1, p1) in zip(RECOVERY_POINTS, RECOVERY_POINTS[1:]):
+        if hours_left <= h1:
+            return round(p0 + (p1 - p0) * (hours_left - h0) / (h1 - h0))
+    return 0
+
+
+def _recovery(rec: dict | None) -> dict | None:
+    if rec is None:
+        return None
+    a = rec["activity"]
+    source = f"{(a['type_key'] or 'activity').replace('_', ' ')} on {a['day']}"
+    if rec["hours_left"] <= 0:
+        note = f"recovered (last set by {source})"
+    else:
+        note = f"{rec['hours_left']:.0f} h left from {source}"
+    if rec["light"] == "red":
+        note += f"; over 36 h caps readiness at {RED_CAP}"
+    return {"score": recovery_points(rec["hours_left"]), "note": note}
+
+
+def score_day(row, history, loads: dict[str, float], rec: dict | None = None) -> dict:
+    """Readiness for one day. `history` = earlier days (for baselines); `rec` = recovery time then."""
     day = date.fromisoformat(row["day"])
     load = load_summary(loads, day)
     parts = {
         "hrv": _hrv(row),
         "sleep": _sleep(row),
+        "recovery": _recovery(rec),
         "resting_hr": _resting_hr(row, history[-30:]),
         "body_battery": _body_battery(row),
         "load": _load(load),
     }
     present = {k: v for k, v in parts.items() if v}
-    total = None
+    total, capped = None, False
     if len(present) >= 2:
         weight = sum(WEIGHTS[k] for k in present)
         total = round(sum(WEIGHTS[k] * v["score"] for k, v in present.items()) / weight)
+        if rec and rec["light"] == "red" and total > RED_CAP:
+            total, capped = RED_CAP, True
     verdict = next((v for v in VERDICTS if total is not None and total >= v[0]), None)
     return {
         "day": row["day"],
         "score": total,
+        "capped": capped,
         "verdict": {"key": verdict[1], "title": verdict[2], "advice": verdict[3]} if verdict else None,
         "components": [
             {"key": k, "weight": WEIGHTS[k], **(v or {"score": None, "note": "no data"})} for k, v in parts.items()
@@ -162,12 +192,15 @@ def score_day(row, history, loads: dict[str, float]) -> dict:
 
 def recovery(activities, now: datetime) -> dict | None:
     """Garmin's recovery time, counted down to `now`. Overlapping activities don't add up: like the
-    watch, the one that ends last wins. None when no recent activity carried a recovery time."""
+    watch, the one that ends last wins. None when no activity before `now` carried a recovery time."""
     best = None
     for a in activities:
         if not a["recovery_min"] or not a["recovery_from"]:
             continue
-        until = datetime.fromisoformat(a["recovery_from"]) + timedelta(minutes=a["recovery_min"])
+        start = datetime.fromisoformat(a["recovery_from"])
+        if start > now:
+            continue
+        until = start + timedelta(minutes=a["recovery_min"])
         if best is None or until > best[0]:
             best = (until, a)
     if best is None:
@@ -187,7 +220,17 @@ def recovery(activities, now: datetime) -> dict | None:
     }
 
 
-PART_LABELS = {"hrv": "HRV", "sleep": "Sleep", "resting_hr": "Resting HR", "body_battery": "Body Battery", "load": "Training load"}
+def _recovery_at(activities, moment: datetime) -> dict | None:
+    """Recovery time at `moment`, but only if every activity that could still count has had its file read;
+    otherwise (older days, before the app read files) the part is left out rather than guessed."""
+    lo = (moment - RECOVERY_WINDOW).date().isoformat()
+    hi = moment.date().isoformat()
+    if any(lo <= a["day"] <= hi and not a["recovery_checked"] for a in activities):
+        return None
+    return recovery(activities, moment)
+
+
+PART_LABELS = {"hrv": "HRV", "sleep": "Sleep", "recovery": "Recovery time", "resting_hr": "Resting HR", "body_battery": "Body Battery", "load": "Training load"}
 
 
 def chat_context(days, activities, today: date, now: datetime | None = None) -> str | None:
@@ -198,7 +241,8 @@ def chat_context(days, activities, today: date, now: datetime | None = None) -> 
         return None
     lines = ["Readiness and training (the app's own estimate from the athlete's Garmin data):"]
     when = "today" if data["is_today"] else f"{t['day']} (no data for today yet)"
-    lines.append(f"Readiness {when}: {t['score']}/100, {t['verdict']['title']}.")
+    capped = f" (capped at {RED_CAP}: recovery time is over 36 h)" if t["capped"] else ""
+    lines.append(f"Readiness {when}: {t['score']}/100{capped}, {t['verdict']['title']}.")
     for c in t["components"]:
         score = "no data" if c["score"] is None else f"{c['score']}/100"
         lines.append(f"- {PART_LABELS[c['key']]} ({score}): {c['note']}")
@@ -244,11 +288,14 @@ def build(days, activities, today: date, now: datetime | None = None) -> dict:
     """Everything the dashboard needs: today's readiness, recovery time and 30 days of trends."""
     rows = list(days)
     activities = list(activities)
+    now = now or datetime.now(timezone.utc)
     loads = daily_loads(activities, today - timedelta(days=70), today)
     by_day = {r["day"]: r for r in rows}
     scored = []
     for i, r in enumerate(rows):
-        scored.append(score_day(r, rows[:i], loads))
+        day = date.fromisoformat(r["day"])
+        moment = now if day == today else datetime(day.year, day.month, day.day, MORNING_UTC, tzinfo=timezone.utc)
+        scored.append(score_day(r, rows[:i], loads, _recovery_at(activities, moment)))
     latest = next((s for s in reversed(scored) if s["score"] is not None), None)
     start = today - timedelta(days=29)
     trend = []
@@ -271,6 +318,6 @@ def build(days, activities, today: date, now: datetime | None = None) -> dict:
     return {
         "today": latest,
         "is_today": bool(latest and latest["day"] == today.isoformat()),
-        "recovery": recovery(activities, now or datetime.now(timezone.utc)),
+        "recovery": recovery(activities, now),
         "trend": trend,
     }

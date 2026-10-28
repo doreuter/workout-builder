@@ -731,7 +731,7 @@ $("#import-file").addEventListener("change", async (e) => {
 
 // --- readiness dashboard ----------------------------------------------------------------
 
-const PART_NAMES = { hrv: "HRV", sleep: "Sleep", resting_hr: "Resting heart rate", body_battery: "Body Battery", load: "Training load" };
+const PART_NAMES = { hrv: "HRV", sleep: "Sleep", recovery: "Recovery time", resting_hr: "Resting heart rate", body_battery: "Body Battery", load: "Training load" };
 
 function showView(view) {
   state.viewName = view;
@@ -788,7 +788,9 @@ function renderReadiness(d) {
   status.replaceChildren();
   if (t?.verdict) {
     status.append(el("span", { class: `r-dot status-${t.verdict.key}`, "aria-hidden": "true" }), t.verdict.title);
-    $("#r-advice").textContent = t.verdict.advice;
+    $("#r-advice").textContent = t.capped
+      ? `${t.verdict.advice} Capped at ${t.score} while recovery time is over 36 h.`
+      : t.verdict.advice;
   } else {
     status.textContent = "Not enough data yet";
     $("#r-advice").textContent = "Wear your watch overnight and sync it; readiness needs at least two of the inputs.";
