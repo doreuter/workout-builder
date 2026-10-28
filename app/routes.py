@@ -21,7 +21,6 @@ PROFILE = "cycling-road"
 ASSUMED_KMH = 26.0  # to turn a workout's duration into a rough target distance
 SEEDS = (1, 2, 3)   # a few different loops to choose between
 MIN_KM, MAX_KM = 8, 120
-LENGTH_FACTOR = 0.7  # ORS round-trips overshoot the requested length, so ask for less and score on the real distance
 
 
 class RouteError(RuntimeError):
@@ -197,12 +196,14 @@ def suggest_route(workout: dict, pace: int | None, lat: float, lon: float,
                   distance_km: float | None = None, seeds=SEEDS) -> dict:
     """Pick the best-fitting round-trip loop near (lat, lon) for the workout. Raises RouteError."""
     target_m = round(distance_km * 1000) if distance_km else target_distance_m(workout, pace)
-    requested_m = round(target_m * LENGTH_FACTOR)  # compensate for ORS's overshoot
     dem = demand(workout, pace)
+    # ORS round-trips overshoot the requested length by an amount that varies with the start, so steer:
+    # measure each loop's real length and correct the next request toward the target (closed loop).
+    requested = target_m
     best, errors = None, []
     for seed in seeds:
         try:
-            geo = _directions(lat, lon, requested_m, seed)
+            geo = _directions(lat, lon, requested, seed)
             feature = geo["features"][0]
         except (RouteError, KeyError, IndexError) as e:
             errors.append(str(e))
@@ -211,6 +212,8 @@ def suggest_route(workout: dict, pace: int | None, lat: float, lon: float,
         cand = {**prof, "score": score(prof, dem, target_m), "seed": seed}
         if best is None or cand["score"] > best["score"]:
             best = cand
+        actual = prof["distance_m"] or requested
+        requested = round(min(MAX_KM * 1000, max(MIN_KM * 1000, requested * target_m / actual)))
     if best is None:
         raise RouteError(errors[0] if errors else "No route could be generated near there.")
     best["summary"] = _summary(best, dem)

@@ -720,16 +720,24 @@ def test_suggest_route_picks_the_best_loop(monkeypatch):
     assert best["path"] and best["distance_m"] > 0 and "score" in best
 
 
-def test_route_tuning_distance_and_wording(monkeypatch):
+def test_route_distance_is_steered_toward_target(monkeypatch):
     from app import routes
-    seen = {}
-    def fake(lat, lon, length, seed):
-        seen["length"] = length
-        return HILLY
+    reqs = []
+    def fake(lat, lon, length, seed):  # simulate ORS overshooting the requested length ~1.6x
+        reqs.append(length)
+        return _ors([500] * max(2, round(length * 1.6 / 100)))
     monkeypatch.setattr(routes, "_directions", fake)
-    best = routes.suggest_route(THRESHOLD, 270, 47.05, 8.55, distance_km=40, seeds=(1,))
-    assert seen["length"] < 40000  # asks ORS for less, to offset its overshoot
-    assert "very hilly" in best["summary"] and "climb" in best["summary"]  # ascent-aware, points at a climb
+    best = routes.suggest_route(THRESHOLD, 270, 47.05, 8.55, distance_km=40, seeds=(1, 2, 3))
+    assert reqs[0] == 40000 and reqs[1] < reqs[0]  # first asks for the target, then steers down
+    # The chosen loop lands closer to 40 km than ORS's first (overshooting) loop did.
+    assert abs(best["distance_m"] - 40000) < abs(reqs[0] * 1.6 - 40000)
+
+
+def test_route_summary_wording():
+    from app import routes
+    # Ascent-aware wording, and a hard session points at the biggest climb.
+    txt = routes._summary(routes.profile(HILLY["features"][0]), routes.demand(THRESHOLD, 270))
+    assert "very hilly" in txt and "climb" in txt
     # A hard session on a loop with no single climb: efforts go on the drags, not the endurance blurb.
     flat_txt = routes._summary(routes.profile(FLAT["features"][0]), routes.demand(THRESHOLD, 270))
     assert "steepest drags" in flat_txt and "steady all the way round" not in flat_txt
