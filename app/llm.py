@@ -206,6 +206,8 @@ def _profile_text(user) -> str:
         parts.append(f"cycling threshold HR {user['lthr_bike']} bpm")
     if user["lthr_run"]:
         parts.append(f"running threshold HR {user['lthr_run']} bpm")
+    if user["weight_kg"]:
+        parts.append(f"weight {user['weight_kg']} kg")
     if user["threshold_pace_s_per_km"]:
         p = user["threshold_pace_s_per_km"]
         parts.append(f"running threshold pace {p // 60}:{p % 60:02d} /km")

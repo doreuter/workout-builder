@@ -10,7 +10,7 @@ const state = {
   registering: false,
   zwiftAvailable: false, // the server can reach the Zwift folder (app running on your own computer)
   browserZwift: false,   // this browser can save into a Zwift folder the user picked
-  routesAvailable: false, // the server has an OpenRouteService key, so route suggestions work
+  climbsAvailable: false, // the server has the climb database, so climb suggestions work
 };
 
 const EXAMPLES = [
@@ -243,7 +243,7 @@ async function startApp() {
   showView("workouts");
   const integrations = await api("/api/integrations").catch(() => ({}));
   state.zwiftAvailable = !!integrations.zwift?.available;
-  state.routesAvailable = !!integrations.routes;
+  state.climbsAvailable = !!integrations.climbs;
   state.tileKey = integrations.tile_key || null;
   state.device = deviceKind();
   state.browserZwift = !state.zwiftAvailable && ZwiftFolder.supported && !["phone", "tablet"].includes(state.device);
@@ -1351,15 +1351,18 @@ function renderActivities(acts) {
   }
 }
 
-// --- outdoor route suggestion (OpenRouteService) ---------------------------------------
+// --- climb suggestions -------------------------------------------------------------------
+// The best climbs near a start point for this workout's intervals, each with a plan for riding them.
+// Worked out on our server from the climb database; the map shows the climb and where the work is.
 
 function renderRoutePanel(workout) {
   const panel = $("#route-suggest");
-  panel.hidden = !(state.routesAvailable && workout.sport === "cycling");
+  panel.hidden = !(state.climbsAvailable && workout.sport === "cycling");
   if (panel.hidden) return;
-  $("#route-detail").hidden = true;
+  $("#climb-list").replaceChildren();
+  $("#climb-note").hidden = true;
   $("#route-error").hidden = true;
-  $("#route-options").hidden = true;
+  if (state.climbLayer) state.climbLayer.clearLayers();
   const saved = routeStartSaved();
   if (saved && !$("#route-start").value) $("#route-start").value = saved;
 }
@@ -1380,15 +1383,16 @@ function setRouteStart(lat, lon) {
   $("#route-start").value = text;
   try { localStorage.setItem("vibegrind.routeStart", text); } catch {}
   if (state.routeMap) {
-    if (!state.routeMarker) state.routeMarker = L.circleMarker([lat, lon], { radius: 7, color: "#e8622c", weight: 3, fillOpacity: .5 }).addTo(state.routeMap);
+    if (!state.routeMarker) state.routeMarker = L.circleMarker([lat, lon], { radius: 7, color: "#e8622c", weight: 3, fillOpacity: .5 })
+      .bindTooltip("You start here").addTo(state.routeMap);
     else state.routeMarker.setLatLng([lat, lon]);
   }
 }
 
 function initRouteMap() {
   if (state.routeMap || !window.L) return;
-  const start = parseStart($("#route-start").value) || { lat: 46.8, lon: 8.23 };
-  const map = L.map("route-map", { scrollWheelZoom: false }).setView([start.lat, start.lon], parseStart($("#route-start").value) ? 12 : 7);
+  const start = parseStart($("#route-start").value) || { lat: 47.05, lon: 8.55 };
+  const map = L.map("route-map", { scrollWheelZoom: false }).setView([start.lat, start.lon], parseStart($("#route-start").value) ? 12 : 9);
   if (state.tileKey) {  // Thunderforest cycle map (contours + hill shading); OSM's own tiles block app use
     L.tileLayer(`https://{s}.tile.thunderforest.com/cycle/{z}/{x}/{y}.png?apikey=${state.tileKey}`,
       // Send just our origin (not the page path) so the key can be restricted to vibegrind.app in the
@@ -1397,6 +1401,7 @@ function initRouteMap() {
   }
   map.on("click", (e) => setRouteStart(e.latlng.lat, e.latlng.lng));
   state.routeMap = map;
+  state.climbLayer = L.layerGroup().addTo(map);
   if (parseStart($("#route-start").value)) setRouteStart(start.lat, start.lon);
   setTimeout(() => map.invalidateSize(), 0);
 }
@@ -1413,13 +1418,13 @@ $("#route-locate").addEventListener("click", () => {
       if (state.routeMap) state.routeMap.setView([pos.coords.latitude, pos.coords.longitude], 12);
       btn.disabled = false;
     },
-    () => { btn.disabled = false; showRouteError("Couldn't get your location — tap the map or type coordinates instead."); },
+    () => { btn.disabled = false; showRouteError("Couldn't get your location. Tap the map or type coordinates instead."); },
   );
 });
 
 function showRouteError(msg) {
-  $("#route-options").hidden = true;
-  $("#route-detail").hidden = true;
+  $("#climb-list").replaceChildren();
+  $("#climb-note").hidden = true;
   const e = $("#route-error");
   e.textContent = msg;
   e.hidden = false;
@@ -1428,83 +1433,85 @@ function showRouteError(msg) {
 $("#route-go").addEventListener("click", async () => {
   const start = parseStart($("#route-start").value);
   $("#route-error").hidden = true;
-  $("#route-detail").hidden = true;
-  $("#route-options").hidden = true;
-  if (!start) return showRouteError("Set a start: tap the map, use your location, or type \"lat, lon\".");
-  const kmField = $("#route-km").value;
-  const body = { lat: start.lat, lon: start.lon };
-  if (kmField) body.distance_km = Number(kmField);
+  if (!start) return showRouteError("Set where you start: tap the map, use your location, or type \"lat, lon\".");
   const btn = $("#route-go");
   btn.disabled = true; btn.textContent = "Finding…";
   try {
-    const r = await api(`/api/workouts/${state.view.id}/route`, { method: "POST", body });
-    renderOptions(r.options || []);
+    renderClimbs(await api(`/api/workouts/${state.view.id}/climbs`, { method: "POST", body: { lat: start.lat, lon: start.lon } }));
   } catch (err) {
     showRouteError(err.message);
   } finally {
-    btn.disabled = false; btn.textContent = "Suggest";
+    btn.disabled = false; btn.textContent = "Find climbs";
   }
 });
 
-function renderOptions(options) {
-  const box = $("#route-options");
-  box.replaceChildren();
-  if (!options.length) { showRouteError("No route came back for that start — try another spot."); return; }
-  // Only show the picker when there's a real choice (ORS often yields just one loop size near a start).
-  if (options.length > 1) {
-    for (const [i, o] of options.entries()) {
-      const b = el("button", { type: "button", class: "route-opt" }, `${(o.distance_m / 1000).toFixed(0)} km`);
-      b.addEventListener("click", () => selectOption(options, i));
-      box.append(b);
-    }
-    box.hidden = false;
-  } else {
-    box.hidden = true;
-  }
-  selectOption(options, 0);
+function renderClimbs(r) {
+  const list = $("#climb-list");
+  list.replaceChildren();
+  const a = r.assumed || {};
+  const guess = [a.ftp ? `an FTP of ${a.ftp_w} W` : null, a.weight ? `${a.weight_kg} kg` : null].filter(Boolean);
+  const note = r.message || (guess.length ? `Plans assume ${guess.join(" and ")}; set yours in Settings for better ones.` : "");
+  $("#climb-note").textContent = note;
+  $("#climb-note").hidden = !note;
+  const found = r.climbs || [];
+  found.forEach((c, i) => list.append(climbCard(found, i)));
+  if (found.length) selectClimb(found, 0);
+  else if (state.climbLayer) state.climbLayer.clearLayers();
 }
 
-function selectOption(options, i) {
-  $("#route-options").querySelectorAll(".route-opt").forEach((b, j) => b.classList.toggle("selected", j === i));
-  drawRoute(options[i]);
+function climbCard(all, i) {
+  const c = all[i];
+  const card = el("article", { class: "climb" });
+  const head = el("div", { class: "climb-head" });
+  head.append(el("span", { class: "climb-n" }, String(i + 1)), el("b", {}, c.name));
+  const facts = `about ${c.distance_km} km away · ${(c.length_m / 1000).toFixed(1)} km · +${c.gain_m} m · ${c.avg}%`
+    + (c.lights ? ` · ${c.lights} traffic light${c.lights === 1 ? "" : "s"}` : "");
+  const plan = el("ul", { class: "climb-plan" });
+  for (const line of c.plan) plan.append(el("li", { class: /^\d+\. /.test(line) ? "step" : "" }, line));
+  const name = c.name.replace(/[^\w-]+/g, "_").slice(0, 60) || "climb";
+  const gpx = el("a", { class: "btn", download: `${name}.gpx`,
+    href: "data:application/gpx+xml;charset=utf-8," + encodeURIComponent(routeGpx({ path: c.path }, c.name)) }, "Climb .gpx");
+  const dir = el("a", { class: "btn", target: "_blank", rel: "noopener",
+    href: `https://www.google.com/maps/dir/?api=1&travelmode=bicycling&destination=${c.foot[0]},${c.foot[1]}` }, "Directions to the bottom");
+  const actions = el("div", { class: "route-actions" });
+  actions.append(dir, gpx);
+  for (const link of [dir, gpx]) link.addEventListener("click", (e) => e.stopPropagation());
+  card.append(head, el("p", { class: "climb-facts" }, facts), plan, actions);
+  card.addEventListener("click", () => selectClimb(all, i));
+  return card;
 }
 
-function routeLine(o) {
-  const km = (o.distance_m / 1000).toFixed(o.distance_m < 10000 ? 1 : 0);
-  let s = `${km} km · ${o.ascent_m} m up`;
-  if (o.climbs?.length) {
-    const c = o.climbs.reduce((a, b) => (b.gain_m > a.gain_m ? b : a));
-    s += ` · ${(c.length_m / 1000).toFixed(1)} km climb @ ${c.grade}%`;
+function selectClimb(all, i) {
+  $("#climb-list").querySelectorAll(".climb").forEach((e, j) => e.classList.toggle("on", j === i));
+  initRouteMap();
+  if (!state.routeMap) return;
+  const c = all[i];
+  const layer = state.climbLayer;
+  layer.clearLayers();
+  const pts = c.path.map((p) => [p[0], p[1]]);
+  L.polyline(pts, { color: "#6b7280", weight: 5, opacity: .8 }).addTo(layer);
+  for (const [a, b] of c.sections) {  // where the efforts go
+    L.polyline(c.path.filter((p) => p[3] >= a && p[3] <= b).map((p) => [p[0], p[1]]), { color: "#e8622c", weight: 7 }).addTo(layer);
   }
-  return s;
+  L.circleMarker(pts[0], { radius: 6, color: "#fff", weight: 2, fillColor: "#6b7280", fillOpacity: 1 })
+    .bindTooltip("Bottom").addTo(layer);
+  L.circleMarker(pts[pts.length - 1], { radius: 6, color: "#fff", weight: 2, fillColor: "#111827", fillOpacity: 1 })
+    .bindTooltip(c.to || "Top").addTo(layer);
+  if (c.turn_m != null) {
+    const t = c.path.reduce((best, p) => (Math.abs(p[3] - c.turn_m) < Math.abs(best[3] - c.turn_m) ? p : best));
+    L.circleMarker([t[0], t[1]], { radius: 7, color: "#fff", weight: 2, fillColor: "#e8622c", fillOpacity: 1 })
+      .bindTooltip("Turn here", { permanent: true, direction: "top", offset: [0, -6] }).addTo(layer);
+  }
+  state.routeMap.fitBounds(L.polyline(pts).getBounds(), { padding: [30, 30] });
 }
 
 function routeGpx(o, name) {
   const pts = o.path.map((p) =>
     `<trkpt lat="${p[0]}" lon="${p[1]}">${p[2] != null ? `<ele>${p[2]}</ele>` : ""}</trkpt>`).join("");
+  const safe = String(name).replace(/[<>&"]/g, "");
   return `<?xml version="1.0" encoding="UTF-8"?>\n` +
     `<gpx version="1.1" creator="VibeGrind" xmlns="http://www.topografix.com/GPX/1/1">` +
-    `<trk><name>${name}</name><trkseg>${pts}</trkseg></trk></gpx>`;
-}
-
-function drawRoute(r) {
-  if (state.routeMap && r.path?.length) {
-    if (state.routeLine) state.routeLine.remove();
-    if (state.routeEnd) state.routeEnd.remove();
-    state.routeLine = L.polyline(r.path, { color: "#e8622c", weight: 4 }).addTo(state.routeMap);
-    // The loop starts and finishes at the same point; mark it.
-    state.routeEnd = L.circleMarker(r.path[0], { radius: 8, color: "#fff", weight: 2, fillColor: "#e8622c", fillOpacity: 1 })
-      .addTo(state.routeMap)
-      .bindTooltip("Start / finish", { permanent: true, direction: "top", offset: [0, -6] });
-    state.routeMap.fitBounds(state.routeLine.getBounds(), { padding: [30, 30] });
-  }
-  $("#route-summary").textContent = routeLine(r);
-  const name = (state.view.workout?.name || "route").replace(/[^\w-]+/g, "_").slice(0, 60) || "route";
-  const dl = $("#route-download");
-  dl.href = "data:application/gpx+xml;charset=utf-8," + encodeURIComponent(routeGpx(r, name));
-  dl.download = `${name}-route.gpx`;
-  $("#route-openmap").href = `https://www.openstreetmap.org/?mlat=${r.path[0][0]}&mlon=${r.path[0][1]}#map=14/${r.path[0][0]}/${r.path[0][1]}`;
-  $("#route-detail").hidden = false;
+    `<trk><name>${safe}</name><trkseg>${pts}</trkseg></trk></gpx>`;
 }
 
 // --- settings --------------------------------------------------------------------------
@@ -1516,6 +1523,7 @@ $("#settings-btn").addEventListener("click", () => {
   f.pace.value = p ? `${Math.floor(p / 60)}:${String(p % 60).padStart(2, "0")}` : "";
   f.lthr_run.value = state.user.lthr_run ?? "";
   f.lthr_bike.value = state.user.lthr_bike ?? "";
+  f.weight_kg.value = state.user.weight_kg ?? "";
   f.training_rules.value = state.user.training_rules ?? "";
   f.querySelectorAll(".filled").forEach((i) => i.classList.remove("filled"));
   $("#garmin-fetch").hidden = !state.user.garmin;
@@ -1642,6 +1650,7 @@ $("#settings-save").addEventListener("click", async (e) => {
         threshold_pace_s_per_km: pace,
         lthr_run: num(f.lthr_run),
         lthr_bike: num(f.lthr_bike),
+        weight_kg: num(f.weight_kg),
         training_rules: f.training_rules.value.trim() || null,
       },
     });

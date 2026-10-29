@@ -148,22 +148,28 @@ server never sees it. Earlier exports of ours are replaced, other files never ar
 **Import workout** also lists the workouts in that folder. In Safari and Firefox, and on phones and tablets,
 the app shows device-specific instructions for the downloaded files instead.
 
-## Outdoor route suggestions (OpenRouteService)
+## Climb suggestions
 
-Given a cycling workout and a start point, the app asks **OpenRouteService** for a few
-round-trip loops (`cycling-road`, with elevation), reads each one's climb profile (`app/routes.py`), scores
-it against the session's main demand (a sustained climb for threshold/VO2 efforts, flat for short reps,
-rolling for endurance) and returns the best as a **candidate to check** — never a route it certifies.
+For a cycling workout and a start point, the **Climbs for this workout** panel on the workout view
+suggests the three best climbs nearby, each with a plan in plain words for riding the intervals on it
+(`app/climbs.py`, endpoint `POST /api/workouts/{id}/climbs` with `{lat, lon}`):
 
-- `POST /api/workouts/{id}/route` with `{lat, lon, distance_km?}` (cycling only; per-user daily cap).
-- Set `ORS_API_KEY` (free key from openrouteservice.org, EU-hosted) to turn it on; without it the feature
-  is off and `/api/integrations` reports `routes: false`.
-- The workout view has a **Find a route outside** panel (Leaflet map, self-hosted; click the map or use your
-  location to set a start) that draws the suggested loop. Start location is personal data and goes only to ORS
-  (privacy policy updated). The basemap is **Thunderforest** (cycling tiles with contours), set with
-  `THUNDERFOREST_API_KEY`; OpenStreetMap's own tile servers block app use, so they aren't used. The tile key is visible in the browser (as tile keys are), so restrict it to `vibegrind.app` in the Thunderforest dashboard; tile requests send the site's origin (`referrerPolicy: strict-origin`) for that check. OSM-backed services are blocked on the owner's network, so this is tested against recorded ORS
-  responses and exercised live on Render. A round-trip loop matches terrain and distance, not the exact
-  interval structure, so it reads e.g. "do the efforts on the 2 km climb at ~6%".
+- The efforts come from the workout (consecutive hard steps, like over-unders, count as one). With the
+  rider's FTP and weight (Settings; 75 kg and 3.3 W/kg assumed when unset) it works out how far up a
+  climb each effort reaches, on that climb's real profile.
+- It puts the efforts on the stretch that suits them: a steady gradient right for the intensity (gentler
+  for sweet spot, steeper for VO2 max), with no traffic lights or stop signs inside, and not too far up.
+- Two ways to ride: **repeats** (ride up, turn, roll back down as the recovery; it says when the descent
+  is shorter or longer than the planned recovery) or **up the climb** (efforts back-to-back going up, on
+  a climb long enough for the whole block).
+- Distance by road from a small road graph shipped with the climbs (`climbdata/central-ch-roads.json.gz`),
+  so climbs across a lake don't look close. Rough, and said so.
+- Everything runs on our server; the start point isn't stored or sent anywhere. The map is Thunderforest's
+  cycle map (`THUNDERFOREST_API_KEY`, a client-side key: restrict it to `vibegrind.app` in their
+  dashboard; tile requests send the site's origin for that check).
+
+The panel shows each climb with the effort stretch highlighted and the turn point, plus directions to the
+bottom (Google Maps) and the climb as a GPX file.
 
 ## Climb database (for interval routes)
 
@@ -174,7 +180,7 @@ and Swisstopo's 2 m elevation model. `app/climbdb.py` finds the climbs across th
 the streets are called, and records each one's gradient, steadiness, traffic signals, stop signs, rail
 crossings, junctions with bigger roads and bike-route share. See `climbdata/README.md` for the format,
 licences (OSM data under the ODbL, © swisstopo) and how to rebuild. Matching a workout to these climbs
-and building the ride is the next step; the round-trip loops below are the current fallback.
+is done by the climb suggestions below.
 
 ## Readiness dashboard (Garmin)
 

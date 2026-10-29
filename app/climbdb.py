@@ -374,7 +374,7 @@ class Climb:
         g200 = [(z_at(self.prof, x + 200) - z_at(self.prof, x)) / 200
                 for x in frange(self.start_d, self.top_d - 200, SAMPLE_M)] or [self.gain / self.length]
         xs = frange(0, self.length, SAMPLE_M) + [self.length]
-        stops, junctions, by_class, streets = [], [], defaultdict(float), []
+        stops, junctions, by_class, streets, streets_at = [], [], defaultdict(float), [], []
         bike, speeds, prev = 0.0, [], None
         ridden = {o_way for *_, o_way in self.vertices()}
         for at, lat, lon, node, way in self.vertices():
@@ -389,6 +389,7 @@ class Climb:
                 name = w["tags"].get("name") or w["tags"].get("ref")
                 if name and (not streets or streets[-1] != name):
                     streets.append(name)
+                    streets_at.append([round(prev[0]), name])
             prev = (at, way)
             if node is None or at <= 1 or at >= self.length - 1:
                 continue
@@ -407,6 +408,7 @@ class Climb:
             "steadiness": round(statistics.pstdev(g100) * 100, 1) if len(g100) > 1 else 0.0,
             "interruptions": stops, "junctions_at_m": junctions,
             "streets": streets,
+            "streets_at": streets_at,  # [metres from the foot, street] where each street begins
             "classes": {k: round(v / self.length, 2) for k, v in sorted(by_class.items(), key=lambda kv: -kv[1]) if v},
             "bike_route": round(bike / self.length, 2) if self.length else 0.0,
             "max_speed": max(speeds) if speeds else None,

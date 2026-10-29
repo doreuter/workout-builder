@@ -560,106 +560,25 @@ def test_later_admin_addresses_need_an_invite(client, monkeypatch):
     assert r.status_code == 200 and r.json()["is_admin"] is True
 
 
-# --- outdoor route suggestions (OpenRouteService) --------------------------------------------
-
-def _ors(eles, step_m=100, lat=47.05, lon=8.55):
-    """A minimal ORS GeoJSON response: points stepping east with the given elevations."""
-    import math
-    dlon = step_m / (111320 * math.cos(math.radians(lat)))
-    coords = [[lon + i * dlon, lat, float(e)] for i, e in enumerate(eles)]
-    return {"features": [{"geometry": {"type": "LineString", "coordinates": coords}, "properties": {}}]}
-
-HILLY = _ors([500 + i * 10 for i in range(41)])  # ~4 km, +400 m, ~10%
-FLAT = _ors([500 for _ in range(41)])            # ~4 km, no climb
-
-CRIT = {"name": "Crit", "sport": "cycling", "steps": [
-    {"type": "warmup", "duration_s": 900, "intensity": 0.5, "intensity_end": 0.85},
-    {"type": "repeat", "count": 10, "steps": [
-        {"type": "steady", "duration_s": 30, "intensity": 1.2},
-        {"type": "rest", "duration_s": 60, "intensity": 0.5}]},
-    {"type": "cooldown", "duration_s": 600, "intensity": 0.6, "intensity_end": 0.4}]}
-
-
-def test_route_profile_and_climb_detection():
-    from app import routes
-    prof = routes.profile(HILLY["features"][0])
-    assert 3800 <= prof["distance_m"] <= 4200
-    assert prof["ascent_m"] >= 380 and prof["climbs"]
-    c = prof["climbs"][0]
-    assert c["gain_m"] >= 380 and 9 <= c["grade"] <= 11 and c["minutes"] > 0
-    assert routes.profile(FLAT["features"][0])["climbs"] == []
-
-
-def test_route_scoring_prefers_terrain_that_matches():
-    from app import routes
-    hilly, flat, target = routes.profile(HILLY["features"][0]), routes.profile(FLAT["features"][0]), 4000
-    sustained = routes.demand(THRESHOLD, 270)   # 8-min threshold efforts -> wants a climb
-    assert routes.score(hilly, sustained, target) > routes.score(flat, sustained, target)
-    crit = routes.demand(CRIT, 270)             # 30-s reps -> wants flat
-    assert routes.score(flat, crit, target) > routes.score(hilly, crit, target)
-
-
-def test_suggest_routes_returns_distinct_options_closest_first(monkeypatch):
-    from app import routes
-    # ORS honours length here, so the spread yields loops of different sizes.
-    monkeypatch.setattr(routes, "_directions",
-                        lambda lat, lon, length, seed: _ors([500] * max(2, round(length / 100))))
-    r = routes.suggest_routes(THRESHOLD, 270, 47.05, 8.55, distance_km=40)
-    opts = r["options"]
-    assert len(opts) >= 2
-    dists = [round(o["distance_m"] / 1000) for o in opts]
-    assert len(set(dists)) == len(dists)             # distinct lengths, not the same loop repeated
-    assert abs(opts[0]["distance_m"] - 40000) == min(abs(o["distance_m"] - 40000) for o in opts)  # closest leads
-    assert all("path" in o and "summary" in o for o in opts)
-
-
-def test_suggest_routes_collapses_to_one_when_ors_ignores_length(monkeypatch):
-    from app import routes
-    # ORS hands back ~55 km whatever we ask: the rider sees one honest option, not fake variety.
-    monkeypatch.setattr(routes, "_directions", lambda lat, lon, length, seed: _ors([500] * 551))
-    opts = routes.suggest_routes(THRESHOLD, 270, 47.05, 8.55, distance_km=30)["options"]
-    assert len(opts) == 1 and 53 <= opts[0]["distance_m"] / 1000 <= 57
-
-
-def test_route_distance_beats_terrain():
-    from app import routes
-    dem = routes.demand(THRESHOLD, 270)  # sustained efforts (would love a climb)
-    on_target = routes.profile(_ors([500] * 501)["features"][0])          # ~50 km, flat, no climb
-    short_hilly = routes.profile(_ors([500 + i * 10 for i in range(151)])["features"][0])  # ~15 km, big climb
-    # A 15 km loop with a lovely climb must NOT win when the rider asked for 50 km.
-    assert routes.score(on_target, dem, 50000) > routes.score(short_hilly, dem, 50000)
-
-
-def test_route_summary_wording():
-    from app import routes
-    # Ascent-aware wording, and a hard session points at the biggest climb.
-    txt = routes._summary(routes.profile(HILLY["features"][0]), routes.demand(THRESHOLD, 270))
-    assert "very hilly" in txt and "climb" in txt
-    # A hard session on a loop with no single climb: efforts go on the drags, not the endurance blurb.
-    flat_txt = routes._summary(routes.profile(FLAT["features"][0]), routes.demand(THRESHOLD, 270))
-    assert "steepest drags" in flat_txt and "steady all the way round" not in flat_txt
-
-
-def test_route_endpoint(client, monkeypatch):
-    from app import routes
-    client.post("/api/register", json={"email": "loop@example.com", "password": "longenough"})
-    client.put("/api/me/profile", json={"ftp": 250, "threshold_pace_s_per_km": 270})
+def test_climb_suggestions_endpoint(client):
+    from app import climbs
+    assert client.post("/api/workouts/1/climbs", json={"lat": 47.05, "lon": 8.55}).status_code == 401
+    client.post("/api/register", json={"email": "climber@example.com", "password": "longenough"})
+    me = client.put("/api/me/profile", json={"ftp": 250, "weight_kg": 68}).json()
+    assert me["weight_kg"] == 68
+    assert client.get("/api/integrations").json()["climbs"] is climbs.available()
     wid = client.post("/api/workouts").json()["id"]
     client.post(f"/api/workouts/{wid}/chat", json={"message": "4x8 threshold"})  # a cycling workout
-    monkeypatch.delenv("ORS_API_KEY", raising=False)
-    assert client.post(f"/api/workouts/{wid}/route", json={"lat": 47.05, "lon": 8.55}).status_code == 503
-    monkeypatch.setenv("ORS_API_KEY", "test-key")
-    monkeypatch.setattr(routes, "_directions", lambda lat, lon, length, seed: HILLY)
-    r = client.post(f"/api/workouts/{wid}/route", json={"lat": 47.05, "lon": 8.55})
-    assert r.status_code == 200
-    opts = r.json()["options"]
-    assert opts and "climb" in opts[0]["summary"] and opts[0]["path"]
-    # Cycling only for now.
-    uid = main.db.get_user_by_email("loop@example.com")["id"]
+    assert client.post(f"/api/workouts/{wid}/climbs", json={"lat": 999, "lon": 8.5}).status_code == 422
+    if climbs.available():
+        r = client.post(f"/api/workouts/{wid}/climbs", json={"lat": 47.0504, "lon": 8.5466}).json()
+        assert len(r["climbs"]) == 3 and r["assumed"] == {"weight": False, "ftp": False, "ftp_w": 250, "weight_kg": 68}
+        assert all(c["plan"] for c in r["climbs"])
+    uid = main.db.get_user_by_email("climber@example.com")["id"]
     rwid = client.post("/api/workouts").json()["id"]
     main.db.save_workout(uid, rwid, {"name": "Run", "sport": "running",
                                      "steps": [{"type": "steady", "duration_s": 1800, "intensity": 0.8}]}, [])
-    assert client.post(f"/api/workouts/{rwid}/route", json={"lat": 47.05, "lon": 8.55}).status_code == 400
+    assert client.post(f"/api/workouts/{rwid}/climbs", json={"lat": 47.05, "lon": 8.55}).status_code == 400
 
 
 def test_oversized_request_body_is_rejected(client):

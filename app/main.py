@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import backup, config, db, garmin, llm, mailer, maintenance, offsite, readiness, routes, security, zwift
+from . import backup, climbs, config, db, garmin, llm, mailer, maintenance, offsite, readiness, security, zwift
 from .auth import current_user, hash_password, start_session, verify_password
 from .exporters import ExportError, safe_filename, to_fit, to_zwo
 from .importers import MAX_ZWO_BYTES, ImportError_, from_fit, from_zwo
@@ -91,6 +91,7 @@ class Profile(BaseModel):
     threshold_pace_s_per_km: int | None = Field(default=None, ge=120, le=900)
     lthr_run: int | None = Field(default=None, ge=80, le=230)
     lthr_bike: int | None = Field(default=None, ge=80, le=230)
+    weight_kg: int | None = Field(default=None, ge=30, le=200)
     training_rules: str | None = Field(default=None, max_length=1000)
 
 
@@ -105,6 +106,7 @@ def _user_json(user) -> dict:
         "threshold_pace_s_per_km": user["threshold_pace_s_per_km"],
         "lthr_run": user["lthr_run"],
         "lthr_bike": user["lthr_bike"],
+        "weight_kg": user["weight_kg"],
         "training_rules": user["training_rules"],
         "is_admin": _is_admin(user),
         "messages_left_today": _messages_left(user),
@@ -187,7 +189,7 @@ def me(user=Depends(current_user)):
 @app.put("/api/me/profile")
 def update_profile(body: Profile, user=Depends(current_user)):
     db.update_profile(user["id"], body.ftp, body.threshold_pace_s_per_km, body.lthr_run, body.lthr_bike,
-                      (body.training_rules or "").strip() or None)
+                      (body.training_rules or "").strip() or None, body.weight_kg)
     return _user_json(db.get_user(user["id"]))
 
 
@@ -785,34 +787,31 @@ def export(workout_id: int, fmt: str, user=Depends(current_user)):
     return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
-class RouteIn(BaseModel):
+class ClimbsIn(BaseModel):
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
-    distance_km: float | None = Field(default=None, ge=5, le=120)
 
 
-@app.post("/api/workouts/{workout_id}/route")
-def suggest_route(workout_id: int, body: RouteIn, request: Request, user=Depends(current_user)):
-    """Suggest an outdoor loop near a start point that fits this (cycling) workout."""
-    if not routes.available():
-        raise HTTPException(503, "Route suggestions aren't set up on this server yet.")
+@app.post("/api/workouts/{workout_id}/climbs")
+def suggest_climbs(workout_id: int, body: ClimbsIn, user=Depends(current_user)):
+    """The best climbs near a start point for this (cycling) workout's intervals, each with a plan.
+    Worked out here from our climb database; the start point isn't stored or sent anywhere."""
+    if not climbs.available():
+        raise HTTPException(503, "Climb suggestions aren't set up on this server yet.")
     row = _get_row(user, workout_id)
     if not row["workout_json"]:
         raise HTTPException(400, "This workout is empty.")
     workout = json.loads(row["workout_json"])
     if workout["sport"] != "cycling":
-        raise HTTPException(400, "Route suggestions are cycling-only for now.")
-    # Protect the shared ORS key: cap per user per day, on top of ORS's own free-tier limits.
-    security.check_rate(request, "route", limit=20, window_s=86400, key=f"user:{user['id']}")
-    try:
-        return routes.suggest_routes(workout, user["threshold_pace_s_per_km"], body.lat, body.lon, body.distance_km)
-    except routes.RouteError as e:
-        raise HTTPException(502, str(e))
+        raise HTTPException(400, "Climb suggestions are for rides for now.")
+    return climbs.recommend(workout, body.lat, body.lon, user["ftp"], user["weight_kg"], user["threshold_pace_s_per_km"])
 
 
 @app.get("/api/integrations")
 def integrations(user=Depends(current_user)):
-    return {"zwift": zwift.status(), "routes": routes.available(), "tile_key": routes.tile_key()}
+    # The tile key is for the map under climb suggestions: a client-side key, restricted to our domain.
+    return {"zwift": zwift.status(), "climbs": climbs.available(),
+            "tile_key": os.environ.get("THUNDERFOREST_API_KEY") or None}
 
 
 @app.post("/api/workouts/{workout_id}/send/zwift")

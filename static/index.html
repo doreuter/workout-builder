@@ -215,24 +215,17 @@
           <p id="export-error" class="error small" hidden></p>
           <p id="send-status" class="success small" hidden></p>
           <details class="route-suggest" id="route-suggest" hidden>
-            <summary>Find a route outside</summary>
+            <summary>Climbs for this workout</summary>
             <div class="route-controls">
-              <input id="route-start" class="route-start" placeholder="Start: tap the map or type lat, lon" inputmode="decimal">
+              <input id="route-start" class="route-start" placeholder="Where you start: tap the map or type lat, lon" inputmode="decimal">
               <button type="button" class="icon-btn" id="route-locate" title="Use my location" aria-label="Use my location">📍</button>
-              <input id="route-km" class="route-km" type="number" min="5" max="120" placeholder="km">
-              <button type="button" class="primary" id="route-go">Suggest</button>
+              <button type="button" class="primary" id="route-go">Find climbs</button>
             </div>
             <div id="route-map" class="route-map"></div>
-            <div id="route-options" class="route-options" hidden></div>
-            <div id="route-detail" class="route-detail" hidden>
-              <p id="route-summary" class="route-summary"></p>
-              <div class="route-actions">
-                <a id="route-download" class="btn" download>Download .gpx</a>
-                <a id="route-openmap" class="btn" target="_blank" rel="noopener">Open in map</a>
-              </div>
-            </div>
+            <p id="climb-note" class="muted small" hidden></p>
+            <div id="climb-list" class="climb-list"></div>
             <p id="route-error" class="error small" hidden></p>
-            <p class="muted tiny route-foot">Check it's open, legal and safe before you go. Routing © <a href="https://openrouteservice.org/" target="_blank" rel="noopener">OpenRouteService</a>, map © <a href="https://www.thunderforest.com/" target="_blank" rel="noopener">Thunderforest</a>, data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>.</p>
+            <p class="muted tiny route-foot">Distances are rough, by road. Check a climb is open, legal and safe for you before you go. Climbs © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors, elevation © swisstopo, map © <a href="https://www.thunderforest.com/" target="_blank" rel="noopener">Thunderforest</a>.</p>
           </details>
           <details class="steps">
             <summary>Steps</summary>
@@ -254,6 +247,7 @@
       <div class="settings-grid">
         <label>Cycling FTP (watts) <input name="ftp" type="number" min="50" max="700" placeholder="e.g. 250"></label>
         <label>Cycling threshold HR (bpm) <input name="lthr_bike" type="number" min="80" max="230" placeholder="e.g. 172"></label>
+        <label>Weight (kg) <input name="weight_kg" type="number" min="30" max="200" placeholder="e.g. 72"></label>
         <label>Running threshold pace (min/km) <input name="pace" inputmode="numeric" pattern="\d{1,2}:\d{2}" placeholder="e.g. 4:45"></label>
         <label>Running threshold HR (bpm) <input name="lthr_run" type="number" min="80" max="230" placeholder="e.g. 168"></label>
       </div>

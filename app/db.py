@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
     max_hr INTEGER,
     lthr_run INTEGER,   -- threshold heart rates (bpm)
     lthr_bike INTEGER,
+    weight_kg INTEGER,  -- for climbing speeds (climb suggestions)
     last_seen_at TEXT,  -- UTC, updated at most hourly
     training_rules TEXT,  -- the athlete's own rules for Claude, free text
     endurance_ceiling_pct INTEGER,  -- no longer used (removed from Settings 2026-10-29)
@@ -143,7 +144,7 @@ def init_db() -> None:
         if "activities_from" not in {r["name"] for r in conn.execute("PRAGMA table_info(garmin_sync)")}:
             conn.execute("ALTER TABLE garmin_sync ADD COLUMN activities_from TEXT")
         columns = {r["name"] for r in conn.execute("PRAGMA table_info(users)")}
-        for name, kind in (("lthr_run", "INTEGER"), ("lthr_bike", "INTEGER"), ("last_seen_at", "TEXT"),
+        for name, kind in (("lthr_run", "INTEGER"), ("lthr_bike", "INTEGER"), ("weight_kg", "INTEGER"), ("last_seen_at", "TEXT"),
                            ("training_rules", "TEXT"), ("endurance_ceiling_pct", "INTEGER"),
                            ("session_version", "INTEGER NOT NULL DEFAULT 0")):
             if name not in columns:
@@ -195,13 +196,14 @@ def any_user_with_email(emails) -> bool:
 
 
 def update_profile(user_id: int, ftp, threshold_pace_s_per_km, lthr_run=None, lthr_bike=None,
-                   training_rules=None) -> None:
+                   training_rules=None, weight_kg=None) -> None:
     # max_hr is no longer edited (threshold heart rates replaced it); a stored value is kept as it was.
     with connect() as conn:
         conn.execute(
-            """UPDATE users SET ftp = ?, threshold_pace_s_per_km = ?, lthr_run = ?, lthr_bike = ?, training_rules = ?
+            """UPDATE users SET ftp = ?, threshold_pace_s_per_km = ?, lthr_run = ?, lthr_bike = ?, training_rules = ?,
+                      weight_kg = ?
                WHERE id = ?""",
-            (ftp, threshold_pace_s_per_km, lthr_run, lthr_bike, training_rules, user_id),
+            (ftp, threshold_pace_s_per_km, lthr_run, lthr_bike, training_rules, weight_kg, user_id),
         )
 
 
@@ -271,7 +273,7 @@ def export_user(user_id: int) -> dict:
         def rows(sql):
             return [dict(r) for r in conn.execute(sql, (user_id,)).fetchall()]
         user = dict(conn.execute(
-            "SELECT email, ftp, threshold_pace_s_per_km, max_hr, lthr_run, lthr_bike, training_rules, "
+            "SELECT email, ftp, threshold_pace_s_per_km, max_hr, lthr_run, lthr_bike, weight_kg, training_rules, "
             "created_at, last_seen_at "
             "FROM users WHERE id = ?", (user_id,)
         ).fetchone())

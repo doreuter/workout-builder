@@ -515,3 +515,15 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 .export-row { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; }
 .export-row .btn, .export-row button { flex: 0 0 auto; }
 .export-note { color: var(--muted); font-size: .8rem; }
+
+/* Climb suggestions: one card per climb, with how to ride the intervals on it. */
+.climb-list { display: grid; gap: .6rem; margin-top: .6rem; }
+.climb { border: 1px solid var(--border); border-radius: 10px; padding: .7rem .85rem; cursor: pointer; background: var(--surface); }
+.climb.on { border-color: var(--accent); }
+.climb-head { display: flex; align-items: center; gap: .5rem; }
+.climb-n { display: inline-grid; place-items: center; width: 1.4rem; height: 1.4rem; border-radius: 50%; background: var(--accent);
+  color: var(--accent-text, #fff); font-size: .75rem; font-weight: 700; flex: none; }
+.climb-facts { margin: .3rem 0 .4rem; color: var(--muted); font-size: .85rem; }
+.climb-plan { margin: 0 0 .6rem; padding-left: 1.1rem; display: grid; gap: .25rem; font-size: .88rem; }
+.climb-plan li.step { list-style: none; margin-left: -.2rem; color: var(--text); }
+#climb-note { margin: .5rem 0 0; }

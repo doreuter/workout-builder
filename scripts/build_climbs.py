@@ -205,6 +205,69 @@ def _interp(pts, x):
     return z0 + (z1 - z0) * ((x - x0) / (x1 - x0) if x1 > x0 else 0)
 
 
+ROUTE_CLASSES = {"primary", "primary_link", "secondary", "secondary_link", "tertiary", "tertiary_link",
+                 "unclassified", "residential", "cycleway"}
+
+
+def road_graph(ways: list, climbs: list) -> dict:
+    """The bigger roads as a small graph, so the app can work out roughly how far each climb is by road
+    (lakes make straight-line distance useless here). Each climb gets its nearest graph node."""
+    g = Network([w for w in ways if w["tags"].get("highway") in ROUTE_CLASSES])
+    index, nodes = {}, []
+    for e in g.edges:
+        for n, c in ((e.a, e.coords[0]), (e.b, e.coords[-1])):
+            if n not in index:
+                index[n] = len(nodes)
+                nodes.append([round(c[0], 5), round(c[1], 5)])
+    edges = [[index[e.a], index[e.b], round(e.length)] for e in g.edges if e.a != e.b]
+    grid = {}
+    for i, (la, lo) in enumerate(nodes):
+        grid.setdefault((int(la * 100), int(lo * 100)), []).append(i)
+    from app.climbdb import haversine
+    for c in climbs:
+        la, lo = c["foot"]
+        best = (1e18, None)
+        for r in range(0, 6):
+            for dx in range(-r, r + 1):
+                for dy in range(-r, r + 1):
+                    for i in grid.get((int(la * 100) + dx, int(lo * 100) + dy), ()):
+                        d = haversine((la, lo), nodes[i])
+                        if d < best[0]:
+                            best = (d, i)
+            if best[1] is not None:
+                break
+        c["foot_node"], c["foot_off_m"] = best[1], round(best[0])
+    return {"nodes": nodes, "edges": edges}
+
+
+LANDMARK_KINDS = {"town", "village", "suburb", "hamlet", "neighbourhood", "locality", "pass"}
+LANDMARK_NEAR_M = 150
+
+
+def landmark_index(places: list, passes: list) -> dict:
+    """Named places on a ~500 m grid, for finding the ones a climb passes."""
+    grid = {}
+    for la, lo, name, *kind in places + [p + ["pass"] for p in passes]:
+        if (kind[0] if kind else "pass") in LANDMARK_KINDS:
+            grid.setdefault((round(la * 200), round(lo * 150)), []).append((la, lo, name))
+    return grid
+
+
+def landmarks(climb: dict, grid: dict) -> list:
+    """[metres from the foot, name] for named places the climb passes within LANDMARK_NEAR_M, in order,
+    so the app can say "turn just past Alosen" instead of "at km 2.1"."""
+    from app.climbdb import haversine, path_points
+    seen, out = set(), []
+    for la, lo, _, at in path_points(climb):
+        k = (round(la * 200), round(lo * 150))
+        for dk in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)):
+            for pla, plo, name in grid.get((k[0] + dk[0], k[1] + dk[1]), ()):
+                if name not in seen and haversine((la, lo), (pla, plo)) <= LANDMARK_NEAR_M:
+                    seen.add(name)
+                    out.append([round(at), name])
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("pbf")
@@ -236,19 +299,27 @@ def main():
     print(f"  {len(climbs)} climbs ({time.time() - t0:.0f} s)", flush=True)
 
     out = []
+    marks = landmark_index(osm["places"], osm["passes"])
     for i, c in enumerate(climbs, 1):
         s = c.stats()
         s["from"] = place_name(s["foot"], osm["places"], osm["passes"], top=False)
         s["to"] = place_name(s["top"], osm["places"], osm["passes"], top=True)
+        s["landmarks"] = landmarks(s, marks)
         s["id"] = f"c{i:05d}"
         out.append(s)
     doc = {"version": 1, "built": date.today().isoformat(), "region": a.region,
            "center": a.center, "radius_km": a.radius_km,
            "sources": {"roads": "© OpenStreetMap contributors (ODbL)", "elevation": "© swisstopo (DTM 2 m)"},
            "climbs": out}
+    roads = road_graph(osm["ways"], out)
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     with gzip.open(a.out, "wt", encoding="utf-8") as f:
         json.dump(doc, f, ensure_ascii=False, separators=(",", ":"))
+    roads_out = a.out.replace(".json.gz", "-roads.json.gz")
+    with gzip.open(roads_out, "wt", encoding="utf-8") as f:
+        json.dump(roads, f, separators=(",", ":"))
+    print(f"Road graph: {len(roads['nodes'])} junctions, {len(roads['edges'])} roads -> {roads_out} "
+          f"({os.path.getsize(roads_out) / 1e6:.1f} MB)")
     print(f"Wrote {len(out)} climbs to {a.out} ({os.path.getsize(a.out) / 1e6:.1f} MB, {time.time() - t0:.0f} s)")
 
 
