@@ -1391,7 +1391,9 @@ function initRouteMap() {
   const map = L.map("route-map", { scrollWheelZoom: false }).setView([start.lat, start.lon], parseStart($("#route-start").value) ? 12 : 7);
   if (state.tileKey) {  // Thunderforest cycle map (contours + hill shading); OSM's own tiles block app use
     L.tileLayer(`https://{s}.tile.thunderforest.com/cycle/{z}/{x}/{y}.png?apikey=${state.tileKey}`,
-      { maxZoom: 18, attribution: "Maps © Thunderforest, Data © OpenStreetMap contributors" }).addTo(map);
+      // Send just our origin (not the page path) so the key can be restricted to vibegrind.app in the
+      // Thunderforest dashboard; the site-wide Referrer-Policy would otherwise send nothing.
+      { maxZoom: 18, attribution: "Maps © Thunderforest, Data © OpenStreetMap contributors", referrerPolicy: "strict-origin" }).addTo(map);
   }
   map.on("click", (e) => setRouteStart(e.latlng.lat, e.latlng.lng));
   state.routeMap = map;
