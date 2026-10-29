@@ -6,3 +6,6 @@ __pycache__/
 .DS_Store
 # Garmin developer docs are for approved partners only; keep them out of git
 docs/garmin/
+
+# climb database build environment
+.venv-build/

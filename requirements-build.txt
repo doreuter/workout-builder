@@ -1,0 +1,2 @@
+# Only for scripts/build_climbs.py (offline); the app itself doesn't need these.
+osmium==4.3.2

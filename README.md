@@ -165,6 +165,17 @@ rolling for endurance) and returns the best as a **candidate to check** — neve
   responses and exercised live on Render. A round-trip loop matches terrain and distance, not the exact
   interval structure, so it reads e.g. "do the efforts on the 2 km climb at ~6%".
 
+## Climb database (for interval routes)
+
+Interval rides are planned on real climbs: ride out as the warm-up, do the efforts uphill, roll back
+down to recover. The climbs come from our own database, `climbdata/central-ch.json.gz` (5,000+ climbs
+within 50 km of Goldau), built offline by `scripts/build_climbs.py` from the Swiss OpenStreetMap extract
+and Swisstopo's 2 m elevation model. `app/climbdb.py` finds the climbs across the road network whatever
+the streets are called, and records each one's gradient, steadiness, traffic signals, stop signs, rail
+crossings, junctions with bigger roads and bike-route share. See `climbdata/README.md` for the format,
+licences (OSM data under the ODbL, © swisstopo) and how to rebuild. Matching a workout to these climbs
+and building the ride is the next step; the round-trip loops below are the current fallback.
+
 ## Readiness dashboard (Garmin)
 
 The **Readiness** tab shows your Garmin data: overnight HRV against your baseline, resting heart rate, sleep, Body Battery, and training load from your activities, plus 30-day trends and recent activities.
