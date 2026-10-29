@@ -5,7 +5,7 @@ import math
 
 import pytest
 
-from app import climbs
+from app import climbs, howto
 from app.climbdb import encode_polyline, haversine
 
 M = 111_320
@@ -72,7 +72,7 @@ needs_data = pytest.mark.skipif(not climbs.available(), reason="climb database i
 def test_recommendations_near_goldau():
     r = climbs.recommend(THRESHOLD_4x8, 47.0504, 8.5466, ftp=250, weight=75)
     assert len(r["climbs"]) == 4 and not r["assumed"]["weight"]
-    assert any("uphill" in line for line in r["howto"]) and r["howto"][0].startswith("Warm up 15 min")
+    assert any("uphill" in line for line in r["howto"]) and r["howto"][0] == "Warm up on the way to the climb."
     for c in r["climbs"]:
         assert c["mode"] in ("repeats", "up") and c["plan"] and c["summary"] and c["distance_km"] <= climbs.MAX_RIDE_KM
         assert c["path"] and c["sections"] and all(a < b for a, b in c["sections"])
@@ -103,3 +103,48 @@ def test_start_points_by_name():
     oberdorf = [p["label"] for p in climbs.find_places("Oberdorf")]
     assert len(set(oberdorf)) == len(oberdorf) > 1  # the many Oberdorfs are told apart
     assert climbs.find_places("g") == []
+
+
+VO2_WITH_OPENERS = {"name": "5x3", "sport": "cycling", "steps": [
+    {"type": "warmup", "duration_s": 600, "intensity": 0.5, "intensity_end": 0.75},
+    {"type": "repeat", "count": 3, "steps": [
+        {"type": "steady", "duration_s": 30, "intensity": 1.2}, {"type": "rest", "duration_s": 60, "intensity": 0.5}]},
+    {"type": "steady", "duration_s": 240, "intensity": 0.6},
+    {"type": "repeat", "count": 5, "steps": [
+        {"type": "steady", "duration_s": 180, "intensity": 1.15}, {"type": "rest", "duration_s": 180, "intensity": 0.5}]},
+    {"type": "cooldown", "duration_s": 600, "intensity": 0.6, "intensity_end": 0.4}]}
+
+
+def test_openers_belong_to_the_warm_up_not_the_main_set():
+    shape = howto.structure(VO2_WITH_OPENERS)
+    assert len(shape["openers"]) == 3 and [e[0] for e in shape["efforts"]] == [180] * 5
+    assert shape["warm_s"] == 600 + 3 * 90 + 240 and shape["cool_s"] == 180 + 600
+    warm, efs = climbs.efforts(VO2_WITH_OPENERS)
+    assert len(efs) == 5  # the climb plan works with the main efforts only
+    sprints = {"name": "10x30s", "sport": "cycling", "steps": [{"type": "warmup", "duration_s": 900, "intensity": 0.6},
+        {"type": "repeat", "count": 10, "steps": [{"type": "steady", "duration_s": 30, "intensity": 1.5},
+                                                  {"type": "rest", "duration_s": 90, "intensity": 0.5}]}]}
+    assert len(howto.structure(sprints)["efforts"]) == 10  # short efforts *are* the main set here
+
+
+def test_how_to_describes_the_whole_workout():
+    lines = howto.describe(VO2_WITH_OPENERS, ftp=250, pace=None)
+    assert lines[0].startswith("Warm up 18½ min") and "3 × 30 s openers at about 300 W" in lines[0]
+    assert "Main set: 5 × 3 min at 288 W (115 % FTP), with 3 min easy between." in lines
+    assert any(l.startswith("Cool down 13 min") for l in lines)
+    run = {"name": "6x800", "sport": "running", "steps": [
+        {"type": "warmup", "duration_s": 900, "intensity": 0.7, "intensity_end": 0.85},
+        {"type": "repeat", "count": 6, "steps": [{"type": "steady", "distance_m": 800, "intensity": 1.05},
+                                                 {"type": "rest", "duration_s": 120, "intensity": 0.6}]}]}
+    assert any("6 × 800 m at 4:17 /km" in l for l in howto.describe(run, ftp=None, pace=270))
+    easy = {"name": "Z2", "sport": "cycling", "steps": [{"type": "steady", "duration_s": 5400, "intensity": 0.65}]}
+    assert howto.describe(easy, 250, None)[0] == "One steady ride of 90 min at about 162 W (65 % FTP)."
+
+
+@needs_data
+def test_outside_plan_skips_the_openers():
+    r = climbs.recommend(VO2_WITH_OPENERS, 47.0504, 8.5466, 250, 75)
+    for c in r["climbs"]:
+        assert all("30 s" not in line for line in c["plan"])  # openers are done on the way there
+        if c["mode"] == "up":
+            assert len(c["sections"]) == 5

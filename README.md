@@ -148,15 +148,23 @@ server never sees it. Earlier exports of ours are replaced, other files never ar
 **Import workout** also lists the workouts in that folder. In Safari and Firefox, and on phones and tablets,
 the app shows device-specific instructions for the downloaded files instead.
 
-## Riding it outside: how-to and climbs
+## How to do a workout
+
+Every workout shows **How to ride it** (or **How to run it**) under its chart (`app/howto.py`): the
+warm-up, with any openers (short efforts before the main set, up to a minute, count as part of the
+warm-up), the main set with targets in watts or pace (distances for run reps set in metres), how the
+efforts should feel and how to pace them, recoveries and the cool-down. A steady ride without efforts
+gets a one-line version.
+
+## Riding it outside: climbs
 
 For a cycling workout, the **Ride it outside** panel on the workout view explains how to ride it outside
 and suggests climbs near where you start (`app/climbs.py`, `POST /api/workouts/{id}/climbs` with
 `{lat, lon}`):
 
-- **How to ride it:** warm-up on the way, the efforts uphill and what kind of climb suits them (a steady
-  gradient right for the intensity and long enough for the longest effort at your power), how to recover
-  between them, cool-down.
+- **Doing it outside:** warm-up (and openers) on the way, the main efforts uphill and what kind of climb
+  suits them (a steady gradient right for the intensity and long enough for the longest effort at your
+  power), and turning around to recover.
 - **Climbs near you:** the best four, as a list with one line each on where the efforts go. Click a name
   for a pop-up with the climb on the map (effort stretch and turn point marked), its elevation profile,
   the full plan, directions to the bottom and the climb as GPX.

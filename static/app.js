@@ -477,6 +477,10 @@ function renderWorkout() {
 
   renderChart(workout.sport, segments, stats.duration_s);
   renderLegend(workout.sport, segments);
+  const howto = state.view.howto || [];
+  $("#w-howto-title").textContent = workout.sport === "running" ? "How to run it" : "How to ride it";
+  $("#w-howto-list").replaceChildren(...howto.map((line) => el("li", {}, line)));
+  $("#w-howto").hidden = !howto.length;
   renderRoutePanel(workout);
   renderSteps(workout);
 

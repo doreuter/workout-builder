@@ -21,7 +21,8 @@ import math
 from pathlib import Path
 
 from .climbdb import haversine, path_points
-from .workout import HARD_FROM, flatten
+from .howto import minutes as _minutes
+from .howto import structure
 
 DATA = Path(__file__).resolve().parent.parent / "climbdata" / "central-ch.json.gz"
 ROADS = DATA.with_name("central-ch-roads.json.gz")  # bigger roads, for distances by road
@@ -126,31 +127,10 @@ def road_km(lat: float, lon: float) -> dict:
 # --- the workout ------------------------------------------------------------------------
 
 def efforts(workout: dict, pace: int | None = None) -> tuple[int, list]:
-    """(warm-up seconds before the first effort, [(seconds, intensity, recovery seconds after)]).
-    Consecutive hard steps (over-unders, say) count as one effort; the last effort's recovery is 0."""
-    hard_from = HARD_FROM["cycling"]
-    warm, out, cur, rec = 0, [], None, 0
-    for s in flatten(workout, pace):
-        i0 = s["intensity"] or 0
-        i1 = s["intensity_end"] if s["intensity_end"] is not None else i0
-        if max(i0, i1) >= hard_from and s["duration_s"] >= 20:
-            if cur is None:
-                if out:
-                    out[-1][2] = rec
-                cur, rec = [0, 0.0], 0
-            cur[0] += s["duration_s"]
-            cur[1] += (i0 + i1) / 2 * s["duration_s"]
-        else:
-            if cur is not None:
-                out.append([cur[0], cur[1] / cur[0], 0])
-                cur = None
-            if out:
-                rec += s["duration_s"]
-            else:
-                warm += s["duration_s"]
-    if cur is not None:
-        out.append([cur[0], cur[1] / cur[0], 0])
-    return warm, [tuple(e) for e in out]
+    """(warm-up seconds before the main set, [(seconds, intensity, recovery seconds after)]). Openers in the
+    warm-up aren't efforts here: they're done on the way (see app/howto.structure)."""
+    shape = structure(workout, pace)
+    return shape["warm_s"], shape["efforts"]
 
 
 # --- riding physics ---------------------------------------------------------------------------
@@ -290,9 +270,8 @@ def recommend(workout: dict, lat: float, lon: float, ftp: int | None, weight: in
     mass = kg + BIKE_KG
     longest = max(efs, key=lambda e: e[0])
     target = target_grade(longest[1])
-    total = sum(s["duration_s"] for s in flatten(workout, pace))
-    cool_s = max(0, total - warm_s - sum(e[0] for e in efs) - sum(e[2] for e in efs))
-    howto = how_to(warm_s, efs, cool_s, watts, mass)
+    openers = bool(structure(workout, pace)["openers"])
+    howto = outside_tips(warm_s, efs, openers, watts, mass)
     assumed = {"weight": weight is None, "ftp": ftp is None, "ftp_w": watts, "weight_kg": kg}
 
     by_road = road_km(lat, lon)
@@ -346,46 +325,25 @@ def recommend(workout: dict, lat: float, lon: float, ftp: int | None, weight: in
     return {"howto": howto, "climbs": out, "assumed": assumed}
 
 
-def how_to(warm_s: int, efs: list, cool_s: int, ftp: float, mass: float) -> list:
-    """How to ride this workout outside, before any particular climb: the shape of a good one, and how to
-    recover between efforts."""
-    groups: list = []  # (count, seconds, intensity)
-    for dur, inten, _ in efs:
-        if groups and groups[-1][1] == dur and abs(groups[-1][2] - inten) < 0.005:
-            groups[-1] = (groups[-1][0] + 1, dur, inten)
-        else:
-            groups.append((1, dur, inten))
-    work = ", ".join(f"{n} × {_minutes(d)}" if n > 1 else _minutes(d) for n, d, _ in groups)
-    watts = sorted({round(i * ftp) for _, _, i in groups})
-    power = f"{watts[0]} W" if len(watts) == 1 else f"{watts[0]}–{watts[-1]} W"
-    recs = sorted({r for _, _, r in efs[:-1]})
+def outside_tips(warm_s: int, efs: list, openers: bool, ftp: float, mass: float) -> list:
+    """Riding it outside, before any particular climb: where the efforts go and how to recover there.
+    (How to do the workout itself is on every workout: app/howto.py.)"""
     longest = max(efs, key=lambda e: e[0])
     t = target_grade(longest[1])
     km = speed(t / 100, longest[1] * ftp, mass) * longest[0] / 1000
     lines = []
     if warm_s:
-        lines.append(f"Warm up {_minutes(warm_s)} easy on the way to the climb, building a little towards the end.")
-    lines.append(f"Do the efforts ({work} at {power}) uphill. A climb holds the power steady and has no stops; look "
-                 f"for a steady {t - 1:.0f}–{t + 1:.0f}% that takes at least {_minutes(longest[0])} at that power, "
-                 f"about {km:.1f} km.")
-    if recs:
-        rec = _minutes(recs[0]) if len(recs) == 1 else f"{_minutes(recs[0])}–{_minutes(recs[-1])}"
-        lines.append(f"Recover {rec} between efforts: turn and roll back down to where you started, or on a long "
-                     "climb spin easy and keep going up.")
-    if cool_s:
-        lines.append(f"Cool down {_minutes(cool_s)} easy on the way home.")
+        lines.append("Warm up on the way to the climb" + (", openers included: any short rise will do." if openers else "."))
+    lines.append(f"Do the main efforts uphill: a climb holds the power steady and has no stops. Look for a steady "
+                 f"{t - 1:.0f}–{t + 1:.0f}% that takes at least {_minutes(longest[0])} at that power, about {km:.1f} km.")
+    if len(efs) > 1:
+        lines.append("Between efforts, turn and roll back down to where you started; on a long climb you can "
+                     "instead spin easy and keep going up.")
+    lines.append("Cool down on the way home.")
     return lines
 
 
 # --- plain-language plan ----------------------------------------------------------------------
-
-def _minutes(seconds: float) -> str:
-    m = round(seconds / 30) / 2
-    whole = int(m)
-    if m < 1:
-        return f"{round(seconds)} s"
-    return f"{whole}½ min" if m - whole else f"{whole} min"
-
 
 def _where(c: dict, pr: _Profile, i: int) -> str:
     """'km 2.1 (845 m) near Alosen' / 'km 2.1 (845 m) on Ratenstrasse' / 'km 2.1 (845 m)'."""
@@ -433,8 +391,9 @@ def _describe(c: dict, p: dict, efs: list, warm_s: int, ride_km: float, ftp: flo
         elif rec and down - rec >= 90:
             line += f", a bit longer than the planned {_minutes(rec)}"
         lines.append(line + ".")
-        lines.append(f"Repeat for all {len(efs)} efforts." if same else
-                     "Repeat for each effort, turning when its time is up (shorter ones turn earlier).")
+        lines.append(f"That's one effort and its recovery: do it {len(efs)} times in all." if same else
+                     f"That's one effort and its recovery: do all {len(efs)} like that, turning when each "
+                     "one's time is up (shorter ones turn earlier).")
     else:
         lines.append("Do the efforts back-to-back on the way up, spinning easy in between:")
         for k, (a, b) in enumerate(spans):

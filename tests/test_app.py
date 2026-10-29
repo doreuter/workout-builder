@@ -568,7 +568,8 @@ def test_climb_suggestions_endpoint(client):
     assert me["weight_kg"] == 68
     assert client.get("/api/integrations").json()["climbs"] is climbs.available()
     wid = client.post("/api/workouts").json()["id"]
-    client.post(f"/api/workouts/{wid}/chat", json={"message": "4x8 threshold"})  # a cycling workout
+    view = client.post(f"/api/workouts/{wid}/chat", json={"message": "4x8 threshold"}).json()  # a cycling workout
+    assert "Main set: 4 × 8 min at 242 W (97 % FTP), with 3 min easy between." in view["howto"]
     assert client.post(f"/api/workouts/{wid}/climbs", json={"lat": 999, "lon": 8.5}).status_code == 422
     if climbs.available():
         r = client.post(f"/api/workouts/{wid}/climbs", json={"lat": 47.0504, "lon": 8.5466}).json()

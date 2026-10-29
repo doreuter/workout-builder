@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import backup, climbs, config, db, garmin, llm, mailer, maintenance, offsite, readiness, security, zwift
+from . import backup, climbs, config, db, garmin, howto, llm, mailer, maintenance, offsite, readiness, security, zwift
 from .auth import current_user, hash_password, start_session, verify_password
 from .exporters import ExportError, safe_filename, to_fit, to_zwo
 from .importers import MAX_ZWO_BYTES, ImportError_, from_fit, from_zwo
@@ -466,6 +466,7 @@ def _workout_view(user, row) -> dict:
         "transcript": llm.visible_transcript(history),
         "source_filename": row["source_filename"],
         "planned_date": row["planned_date"],
+        "howto": howto.describe(workout, user["ftp"], pace) if workout else [],
     }
 
 

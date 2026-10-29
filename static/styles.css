@@ -536,3 +536,8 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 .pf-turn { stroke: #e8622c; stroke-width: 1.5; stroke-dasharray: 4 3; }
 .pf-grid { stroke: var(--border); stroke-width: 1; }
 .pf-label { fill: var(--muted); font-size: 11px; }
+
+/* How to do the workout: on every workout view. */
+.howto { margin: .9rem 0 .2rem; padding: .7rem .9rem; border-left: 3px solid var(--accent);
+  background: var(--surface-2, rgba(127,127,127,.08)); border-radius: 0 8px 8px 0; }
+.howto h4 { margin: 0 0 .35rem; font-size: .9rem; }
