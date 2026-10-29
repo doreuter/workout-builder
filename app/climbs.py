@@ -270,8 +270,13 @@ def recommend(workout: dict, lat: float, lon: float, ftp: int | None, weight: in
     mass = kg + BIKE_KG
     longest = max(efs, key=lambda e: e[0])
     target = target_grade(longest[1])
-    openers = bool(structure(workout, pace)["openers"])
-    howto = outside_tips(warm_s, efs, openers, watts, mass)
+    shape = structure(workout, pace)
+    howto = outside_tips(warm_s, efs, bool(shape["openers"]), watts, mass)
+    steady = [(d, i) for kind, d, i in shape["after"] if kind == "steady"]
+    if steady:
+        d, i = max(steady)
+        howto[-1] = (f"On the way home ride the steady {_minutes(d)} at about {round(i * watts)} W on "
+                     "flat or rolling roads, then cool down easy.")
     assumed = {"weight": weight is None, "ftp": ftp is None, "ftp_w": watts, "weight_kg": kg}
 
     by_road = road_km(lat, lon)
