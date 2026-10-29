@@ -240,6 +240,20 @@ def road_graph(ways: list, climbs: list) -> dict:
     return {"nodes": nodes, "edges": edges}
 
 
+def start_places(places: list) -> list:
+    """Towns, villages and hamlets to search for a start point by name: [name, lat, lon, kind, near], where
+    `near` is the closest bigger place (to tell the five places called Oberdorf apart)."""
+    from app.climbdb import haversine
+    keep = [p for p in places if p[3] in ("city", "town", "village", "suburb", "hamlet")]
+    big = [p for p in keep if p[3] in ("city", "town", "village")]
+    out = []
+    for la, lo, name, kind in keep:
+        others = [(haversine((la, lo), b[:2]), b[2]) for b in big if b[2] != name and abs(b[0] - la) < 0.1 and abs(b[1] - lo) < 0.15]
+        near = min(others)[1] if others and kind in ("suburb", "hamlet") else ""
+        out.append([name, round(la, 5), round(lo, 5), kind, near])
+    return out
+
+
 LANDMARK_KINDS = {"town", "village", "suburb", "hamlet", "neighbourhood", "locality", "pass"}
 LANDMARK_NEAR_M = 150
 
@@ -312,6 +326,9 @@ def main():
            "sources": {"roads": "© OpenStreetMap contributors (ODbL)", "elevation": "© swisstopo (DTM 2 m)"},
            "climbs": out}
     roads = road_graph(osm["ways"], out)
+    places_out = a.out.replace(".json.gz", "-places.json.gz")
+    with gzip.open(places_out, "wt", encoding="utf-8") as f:
+        json.dump(start_places(osm["places"]), f, ensure_ascii=False, separators=(",", ":"))
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     with gzip.open(a.out, "wt", encoding="utf-8") as f:
         json.dump(doc, f, ensure_ascii=False, separators=(",", ":"))

@@ -244,13 +244,15 @@ def _sync_recovery(client, user_id: int, since: date) -> None:
 
 
 def thresholds(user, client=None) -> dict:
-    """FTP and threshold heart rates as Garmin has them, for Settings to offer. Threshold pace isn't
-    in the Personal API (its activity field stays empty), so it's not here."""
+    """FTP, threshold heart rates and weight as Garmin has them, for Settings to offer. Threshold pace
+    isn't in the Personal API (its activity field stays empty), so it's not here. Weight is the latest
+    weigh-in of the past year, with its date (an old one may be out of date)."""
     if not is_owner(user):
         raise GarminError("Garmin isn't connected for this account.")
     try:
         client = client or _client()
         out = {"ftp": None, "lthr_run": None, "lthr_bike": None}
+        weight = _latest_weight(client)
         zones = client.get_heart_rate_zones() or []
         by_sport = {z.get("sport"): z.get("lactateThresholdHeartRateUsed") for z in zones if isinstance(z, dict)}
         out["lthr_run"] = by_sport.get("RUNNING") or by_sport.get("DEFAULT")
@@ -263,4 +265,20 @@ def thresholds(user, client=None) -> dict:
         raise
     except Exception as e:
         raise GarminError(f"Couldn't read your thresholds from Garmin ({getattr(e, 'status_code', '') or type(e).__name__}).") from e
-    return {k: (round(v) if v else None) for k, v in out.items()}
+    out = {k: (round(v) if v else None) for k, v in out.items()}
+    out["weight_kg"], out["weight_date"] = weight
+    return out
+
+
+def _latest_weight(client) -> tuple:
+    """(kg, date) of the newest weigh-in in the past year, or (None, None). Garmin gives grams."""
+    try:
+        data = client.get_weight_measurements(date.today() - timedelta(days=365), date.today()) or {}
+    except Exception:  # weight is optional: thresholds still work without it
+        return None, None
+    entries = [d.get("latestWeight") or {} for d in data.get("dailyWeightSummaries") or []]
+    entries = [e for e in entries if e.get("weight") and e.get("calendarDate")]
+    if not entries:
+        return None, None
+    newest = max(entries, key=lambda e: e["calendarDate"])
+    return round(newest["weight"] / 1000), newest["calendarDate"]

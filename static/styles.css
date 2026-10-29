@@ -516,14 +516,23 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 .export-row .btn, .export-row button { flex: 0 0 auto; }
 .export-note { color: var(--muted); font-size: .8rem; }
 
-/* Climb suggestions: one card per climb, with how to ride the intervals on it. */
-.climb-list { display: grid; gap: .6rem; margin-top: .6rem; }
-.climb { border: 1px solid var(--border); border-radius: 10px; padding: .7rem .85rem; cursor: pointer; background: var(--surface); }
-.climb.on { border-color: var(--accent); }
-.climb-head { display: flex; align-items: center; gap: .5rem; }
-.climb-n { display: inline-grid; place-items: center; width: 1.4rem; height: 1.4rem; border-radius: 50%; background: var(--accent);
-  color: var(--accent-text, #fff); font-size: .75rem; font-weight: 700; flex: none; }
-.climb-facts { margin: .3rem 0 .4rem; color: var(--muted); font-size: .85rem; }
-.climb-plan { margin: 0 0 .6rem; padding-left: 1.1rem; display: grid; gap: .25rem; font-size: .88rem; }
-.climb-plan li.step { list-style: none; margin-left: -.2rem; color: var(--text); }
-#climb-note { margin: .5rem 0 0; }
+/* Ride it outside: how-to, the climbs as a list, and a pop-up per climb. */
+.climb-block { margin-top: .8rem; }
+.climb-block h4 { margin: 0 0 .35rem; font-size: .9rem; }
+.climb-plan { margin: 0; padding-left: 1.1rem; display: grid; gap: .3rem; font-size: .88rem; }
+.climb-plan li.step { list-style: none; margin-left: -.2rem; }
+.climb-list { margin: 0; padding-left: 1.2rem; display: grid; gap: .55rem; font-size: .88rem; }
+.climb-name { font-weight: 600; font-size: .92rem; padding: 0; }
+#climb-note { margin: .6rem 0 0; }
+.climb-dialog { width: min(760px, 94vw); padding: 1.1rem 1.2rem 1.2rem; }
+.climb-dialog[open] { display: grid; gap: .6rem; }
+.climb-dialog .dialog-head h2 { font-size: 1.1rem; margin: 0; }
+.climb-dialog p { margin: 0; }
+.cd-map { height: 280px; border-radius: 8px; overflow: hidden; background: var(--surface-2, rgba(127,127,127,.1)); }
+.cd-profile { width: 100%; height: auto; display: block; }
+.pf-area { fill: var(--surface-2, rgba(127,127,127,.18)); }
+.pf-work { fill: rgba(232, 98, 44, .35); }
+.pf-line { fill: none; stroke: var(--text); stroke-width: 1.5; }
+.pf-turn { stroke: #e8622c; stroke-width: 1.5; stroke-dasharray: 4 3; }
+.pf-grid { stroke: var(--border); stroke-width: 1; }
+.pf-label { fill: var(--muted); font-size: 11px; }

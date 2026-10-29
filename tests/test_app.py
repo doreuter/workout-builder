@@ -572,7 +572,9 @@ def test_climb_suggestions_endpoint(client):
     assert client.post(f"/api/workouts/{wid}/climbs", json={"lat": 999, "lon": 8.5}).status_code == 422
     if climbs.available():
         r = client.post(f"/api/workouts/{wid}/climbs", json={"lat": 47.0504, "lon": 8.5466}).json()
-        assert len(r["climbs"]) == 3 and r["assumed"] == {"weight": False, "ftp": False, "ftp_w": 250, "weight_kg": 68}
+        assert len(r["climbs"]) == 4 and r["assumed"] == {"weight": False, "ftp": False, "ftp_w": 250, "weight_kg": 68}
+        assert r["howto"]
+        assert client.get("/api/places?q=Goldau").json()[0]["name"] == "Goldau"
         assert all(c["plan"] for c in r["climbs"])
     uid = main.db.get_user_by_email("climber@example.com")["id"]
     rwid = client.post("/api/workouts").json()["id"]
@@ -658,6 +660,11 @@ class FakeGarmin:
                  "activityTrainingLoad": 80, "normPower": 230}
                 for d in self._range(start_date, end_date) if d.toordinal() % 2 == 0]
         return acts[start:start + limit]
+
+    def get_weight_measurements(self, start, end):  # grams, newest first, as Garmin sends them
+        return {"dailyWeightSummaries": [
+            {"summaryDate": "2026-06-19", "latestWeight": {"calendarDate": "2026-06-19", "weight": 71400.0}},
+            {"summaryDate": "2026-03-02", "latestWeight": {"calendarDate": "2026-03-02", "weight": 73100.0}}]}
 
     def get_heart_rate_zones(self):
         return [{"sport": "DEFAULT", "lactateThresholdHeartRateUsed": 171, "maxHeartRateUsed": 191},
@@ -866,7 +873,8 @@ def test_recovery_time_on_dashboard_and_in_chat(client, garmin_owner, monkeypatc
 def test_thresholds_from_garmin_and_in_settings(client, garmin_owner, monkeypatch):
     monkeypatch.setattr(garmin, "_client", lambda: FakeGarmin(_date.today()))
     client.get("/api/readiness?refresh=1")  # stores the rides the FTP is read from
-    assert client.get("/api/me/garmin-thresholds").json() == {"ftp": 360, "lthr_run": 171, "lthr_bike": 179}
+    assert client.get("/api/me/garmin-thresholds").json() == {"ftp": 360, "lthr_run": 171, "lthr_bike": 179,
+                                                            "weight_kg": 71, "weight_date": "2026-06-19"}
     me = client.put("/api/me/profile", json={"ftp": 360, "threshold_pace_s_per_km": 285,
                                              "lthr_run": 171, "lthr_bike": 179}).json()
     assert "max_hr" not in me

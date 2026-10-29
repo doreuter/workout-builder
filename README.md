@@ -148,28 +148,30 @@ server never sees it. Earlier exports of ours are replaced, other files never ar
 **Import workout** also lists the workouts in that folder. In Safari and Firefox, and on phones and tablets,
 the app shows device-specific instructions for the downloaded files instead.
 
-## Climb suggestions
+## Riding it outside: how-to and climbs
 
-For a cycling workout and a start point, the **Climbs for this workout** panel on the workout view
-suggests the three best climbs nearby, each with a plan in plain words for riding the intervals on it
-(`app/climbs.py`, endpoint `POST /api/workouts/{id}/climbs` with `{lat, lon}`):
+For a cycling workout, the **Ride it outside** panel on the workout view explains how to ride it outside
+and suggests climbs near where you start (`app/climbs.py`, `POST /api/workouts/{id}/climbs` with
+`{lat, lon}`):
 
-- The efforts come from the workout (consecutive hard steps, like over-unders, count as one). With the
-  rider's FTP and weight (Settings; 75 kg and 3.3 W/kg assumed when unset) it works out how far up a
-  climb each effort reaches, on that climb's real profile.
-- It puts the efforts on the stretch that suits them: a steady gradient right for the intensity (gentler
-  for sweet spot, steeper for VO2 max), with no traffic lights or stop signs inside, and not too far up.
-- Two ways to ride: **repeats** (ride up, turn, roll back down as the recovery; it says when the descent
-  is shorter or longer than the planned recovery) or **up the climb** (efforts back-to-back going up, on
-  a climb long enough for the whole block).
-- Distance by road from a small road graph shipped with the climbs (`climbdata/central-ch-roads.json.gz`),
-  so climbs across a lake don't look close. Rough, and said so.
-- Everything runs on our server; the start point isn't stored or sent anywhere. The map is Thunderforest's
-  cycle map (`THUNDERFOREST_API_KEY`, a client-side key: restrict it to `vibegrind.app` in their
-  dashboard; tile requests send the site's origin for that check).
-
-The panel shows each climb with the effort stretch highlighted and the turn point, plus directions to the
-bottom (Google Maps) and the climb as a GPX file.
+- **How to ride it:** warm-up on the way, the efforts uphill and what kind of climb suits them (a steady
+  gradient right for the intensity and long enough for the longest effort at your power), how to recover
+  between them, cool-down.
+- **Climbs near you:** the best four, as a list with one line each on where the efforts go. Click a name
+  for a pop-up with the climb on the map (effort stretch and turn point marked), its elevation profile,
+  the full plan, directions to the bottom and the climb as GPX.
+- The start is a place name, searched in the towns, villages and hamlets shipped with the climbs
+  (`climbdata/central-ch-places.json.gz`, `GET /api/places?q=`), or your location.
+- The planner: efforts come from the workout (over-unders count as one); with FTP and weight (Settings;
+  **Fetch from Garmin** fills in the latest weigh-in; 75 kg and 3.3 W/kg assumed when unset) it works out
+  how far up a climb each effort reaches on the real profile, puts the efforts on the stretch that suits
+  them (no traffic lights or stop signs inside, not too far up), and picks **repeats** (up, turn, roll
+  down as the recovery) or **back-to-back** up a long climb.
+- Distance by road from a small road graph shipped with the climbs, so climbs across a lake don't look
+  close. Rough, and said so.
+- Everything runs on our server; the start point isn't stored or sent anywhere. The map is
+  Thunderforest's cycle map (`THUNDERFOREST_API_KEY`, a client-side key: restrict it to `vibegrind.app`
+  in their dashboard; tile requests send the site's origin for that check).
 
 ## Climb database (for interval routes)
 

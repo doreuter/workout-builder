@@ -25,6 +25,7 @@ from .workout import HARD_FROM, flatten
 
 DATA = Path(__file__).resolve().parent.parent / "climbdata" / "central-ch.json.gz"
 ROADS = DATA.with_name("central-ch-roads.json.gz")  # bigger roads, for distances by road
+PLACES = DATA.with_name("central-ch-places.json.gz")  # towns, villages, hamlets: start points by name
 SEARCH_KM = 30          # straight-line radius searched around the start
 MAX_RIDE_KM = 45        # by road
 ROAD_FACTOR = 1.3       # straight line -> rough road distance, where the road graph can't help
@@ -37,6 +38,7 @@ BREAKS = ("signal", "stop", "give_way", "rail", "roundabout")
 
 _db: list | None = None
 _roads: dict | None = None
+_places: list | None = None
 
 
 def available() -> bool:
@@ -48,6 +50,29 @@ def _load() -> list:
     if _db is None:
         _db = json.load(gzip.open(DATA, "rt"))["climbs"] if DATA.exists() else []
     return _db
+
+
+def find_places(query: str, limit: int = 8) -> list:
+    """Start points by name: names starting with the query first, towns and villages before hamlets."""
+    global _places
+    if _places is None:
+        _places = json.load(gzip.open(PLACES, "rt")) if PLACES.exists() else []
+    q = query.strip().lower()
+    if len(q) < 2:
+        return []
+    rank = {"city": 0, "town": 0, "village": 1, "suburb": 2, "hamlet": 3}
+    hits = [p for p in _places if q in p[0].lower()]
+    hits.sort(key=lambda p: (not p[0].lower().startswith(q), rank.get(p[3], 4), len(p[0]), p[0]))
+    out, seen = [], set()
+    for name, lat, lon, kind, near in hits:
+        label = f"{name} (near {near})" if near else name
+        if label in seen:
+            continue
+        seen.add(label)
+        out.append({"label": label, "name": name, "lat": lat, "lon": lon})
+        if len(out) == limit:
+            break
+    return out
 
 
 def _road_graph() -> dict | None:
@@ -255,7 +280,7 @@ def plan(climb: dict, warm_s: int, efs: list, ftp: float, mass: float) -> dict |
 # --- recommending -----------------------------------------------------------------------------
 
 def recommend(workout: dict, lat: float, lon: float, ftp: int | None, weight: int | None,
-              pace: int | None = None, limit: int = 3) -> dict:
+              pace: int | None = None, limit: int = 4) -> dict:
     """The best climbs near (lat, lon) for this workout's efforts, each with a plan in plain words."""
     warm_s, efs = efforts(workout, pace)
     if not efs:
@@ -265,6 +290,10 @@ def recommend(workout: dict, lat: float, lon: float, ftp: int | None, weight: in
     mass = kg + BIKE_KG
     longest = max(efs, key=lambda e: e[0])
     target = target_grade(longest[1])
+    total = sum(s["duration_s"] for s in flatten(workout, pace))
+    cool_s = max(0, total - warm_s - sum(e[0] for e in efs) - sum(e[2] for e in efs))
+    howto = how_to(warm_s, efs, cool_s, watts, mass)
+    assumed = {"weight": weight is None, "ftp": ftp is None, "ftp_w": watts, "weight_kg": kg}
 
     by_road = road_km(lat, lon)
     near = []
@@ -287,8 +316,9 @@ def recommend(workout: dict, lat: float, lon: float, ftp: int | None, weight: in
             1 for s in c["interruptions"] if s["kind"] in BREAKS) - 0.8 * km
         near.append((rough, km, c))
     if not near:
-        return {"climbs": [], "message": "No climbs in our database near there yet. It covers about 50 km "
-                                         "around Goldau in Central Switzerland."}
+        return {"howto": howto, "climbs": [], "assumed": assumed,
+                "message": "No climbs in our database near there yet. It covers about 50 km around Goldau "
+                           "in Central Switzerland."}
     near.sort(key=lambda x: -x[0])
 
     ideal_km = warm_s / 3600 * APPROACH_KMH
@@ -313,7 +343,38 @@ def recommend(workout: dict, lat: float, lon: float, ftp: int | None, weight: in
         out.append(_describe(c, p, efs, warm_s, ride_km, watts, round(score, 1)))
         if len(out) == limit:
             break
-    return {"climbs": out, "assumed": {"weight": weight is None, "ftp": ftp is None, "ftp_w": watts, "weight_kg": kg}}
+    return {"howto": howto, "climbs": out, "assumed": assumed}
+
+
+def how_to(warm_s: int, efs: list, cool_s: int, ftp: float, mass: float) -> list:
+    """How to ride this workout outside, before any particular climb: the shape of a good one, and how to
+    recover between efforts."""
+    groups: list = []  # (count, seconds, intensity)
+    for dur, inten, _ in efs:
+        if groups and groups[-1][1] == dur and abs(groups[-1][2] - inten) < 0.005:
+            groups[-1] = (groups[-1][0] + 1, dur, inten)
+        else:
+            groups.append((1, dur, inten))
+    work = ", ".join(f"{n} × {_minutes(d)}" if n > 1 else _minutes(d) for n, d, _ in groups)
+    watts = sorted({round(i * ftp) for _, _, i in groups})
+    power = f"{watts[0]} W" if len(watts) == 1 else f"{watts[0]}–{watts[-1]} W"
+    recs = sorted({r for _, _, r in efs[:-1]})
+    longest = max(efs, key=lambda e: e[0])
+    t = target_grade(longest[1])
+    km = speed(t / 100, longest[1] * ftp, mass) * longest[0] / 1000
+    lines = []
+    if warm_s:
+        lines.append(f"Warm up {_minutes(warm_s)} easy on the way to the climb, building a little towards the end.")
+    lines.append(f"Do the efforts ({work} at {power}) uphill. A climb holds the power steady and has no stops; look "
+                 f"for a steady {t - 1:.0f}–{t + 1:.0f}% that takes at least {_minutes(longest[0])} at that power, "
+                 f"about {km:.1f} km.")
+    if recs:
+        rec = _minutes(recs[0]) if len(recs) == 1 else f"{_minutes(recs[0])}–{_minutes(recs[-1])}"
+        lines.append(f"Recover {rec} between efforts: turn and roll back down to where you started, or on a long "
+                     "climb spin easy and keep going up.")
+    if cool_s:
+        lines.append(f"Cool down {_minutes(cool_s)} easy on the way home.")
+    return lines
 
 
 # --- plain-language plan ----------------------------------------------------------------------
@@ -327,14 +388,14 @@ def _minutes(seconds: float) -> str:
 
 
 def _where(c: dict, pr: _Profile, i: int) -> str:
-    """'km 2.1 (845 m), near Alosen' / 'km 2.1 (845 m) on Ratenstrasse' / 'km 2.1 (845 m)'."""
+    """'km 2.1 (845 m) near Alosen' / 'km 2.1 (845 m) on Ratenstrasse' / 'km 2.1 (845 m)'."""
     x, z = pr.d[i], pr.z[i]
     spot = f"km {x / 1000:.1f} ({z:,.0f} m)".replace(",", "'")
     if x < 50:
         spot = f"the bottom ({z:,.0f} m)".replace(",", "'")
     near = [name for at, name in c.get("landmarks", []) if abs(at - x) <= 250]
     if near:
-        return f"{spot}, near {near[0]}"
+        return f"{spot} near {near[0]}"
     street = None
     for at, name in c.get("streets_at", []):
         if at <= x + 1:
@@ -390,8 +451,14 @@ def _describe(c: dict, p: dict, efs: list, warm_s: int, ride_km: float, ftp: flo
                  + ("with no traffic lights or stop signs." if not lights else
                     f"with {len(lights)} traffic light or stop sign on the way; take it easy there."))
     lines.append("Afterwards ride home easy as your cool-down.")
+    if p["mode"] == "repeats":
+        s, e = spans[0]
+        summary = f"Efforts from {_where(c, pr, s)} to {_where(c, pr, e)}, then turn and roll back down."
+    else:
+        summary = (f"Efforts back-to-back going up, from {_where(c, pr, spans[0][0])} to "
+                   f"{_where(c, pr, spans[-1][1])}.")
     return {
-        "id": c["id"], "name": _name(c), "from": c["from"], "to": c["to"],
+        "id": c["id"], "name": _name(c), "from": c["from"], "to": c["to"], "summary": summary,
         "distance_km": round(ride_km), "length_m": c["length_m"], "gain_m": c["gain_m"], "avg": c["avg"],
         "top_ele": c["top_ele"], "lights": sum(1 for s in c["interruptions"] if s["kind"] == "signal"),
         "mode": p["mode"], "plan": lines,

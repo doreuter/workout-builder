@@ -215,15 +215,22 @@
           <p id="export-error" class="error small" hidden></p>
           <p id="send-status" class="success small" hidden></p>
           <details class="route-suggest" id="route-suggest" hidden>
-            <summary>Climbs for this workout</summary>
+            <summary>Ride it outside</summary>
             <div class="route-controls">
-              <input id="route-start" class="route-start" placeholder="Where you start: tap the map or type lat, lon" inputmode="decimal">
+              <input id="route-start" class="route-start" list="place-list" placeholder="Where do you start? e.g. Goldau" autocomplete="off">
+              <datalist id="place-list"></datalist>
               <button type="button" class="icon-btn" id="route-locate" title="Use my location" aria-label="Use my location">📍</button>
               <button type="button" class="primary" id="route-go">Find climbs</button>
             </div>
-            <div id="route-map" class="route-map"></div>
             <p id="climb-note" class="muted small" hidden></p>
-            <div id="climb-list" class="climb-list"></div>
+            <div id="climb-howto" class="climb-block" hidden>
+              <h4>How to ride it</h4>
+              <ul class="climb-plan" id="howto-list"></ul>
+            </div>
+            <div id="climb-near" class="climb-block" hidden>
+              <h4 id="climb-near-title">Climbs nearby</h4>
+              <ol class="climb-list" id="climb-list"></ol>
+            </div>
             <p id="route-error" class="error small" hidden></p>
             <p class="muted tiny route-foot">Distances are rough, by road. Check a climb is open, legal and safe for you before you go. Climbs © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors, elevation © swisstopo, map © <a href="https://www.thunderforest.com/" target="_blank" rel="noopener">Thunderforest</a>.</p>
           </details>
@@ -242,14 +249,14 @@
       <p class="muted small">Used to show watts next to percentages and to give Claude your numbers.</p>
       <div class="garmin-fetch" id="garmin-fetch" hidden>
         <button type="button" id="garmin-fetch-btn">Fetch from Garmin</button>
-        <p class="muted small" id="garmin-fetch-msg">Fills in FTP and threshold heart rates. Check them, then save.</p>
+        <p class="muted small" id="garmin-fetch-msg">Fills in FTP, threshold heart rates and weight. Check them, then save.</p>
       </div>
       <div class="settings-grid">
         <label>Cycling FTP (watts) <input name="ftp" type="number" min="50" max="700" placeholder="e.g. 250"></label>
         <label>Cycling threshold HR (bpm) <input name="lthr_bike" type="number" min="80" max="230" placeholder="e.g. 172"></label>
-        <label>Weight (kg) <input name="weight_kg" type="number" min="30" max="200" placeholder="e.g. 72"></label>
         <label>Running threshold pace (min/km) <input name="pace" inputmode="numeric" pattern="\d{1,2}:\d{2}" placeholder="e.g. 4:45"></label>
         <label>Running threshold HR (bpm) <input name="lthr_run" type="number" min="80" max="230" placeholder="e.g. 168"></label>
+        <label>Weight (kg) <input name="weight_kg" type="number" min="30" max="200" placeholder="e.g. 72"></label>
       </div>
       <label>Your training rules
         <textarea name="training_rules" rows="4" maxlength="1000" placeholder="One short rule per line, e.g.&#10;Weekday sessions max 75 min&#10;Warm-up: 4×30s rising power&#10;No running two days in a row"></textarea>
@@ -348,6 +355,21 @@
         <input id="import-file" type="file" accept=".zwo,.fit,.FIT">
       </section>
       <p id="import-error" class="error small" hidden></p>
+    </div>
+  </dialog>
+
+  <dialog id="climb-dialog" class="climb-dialog">
+    <div class="dialog-head">
+      <h2 id="cd-title"></h2>
+      <button type="button" class="icon-btn" id="cd-close" aria-label="Close">✕</button>
+    </div>
+    <p class="muted small" id="cd-facts"></p>
+    <div id="cd-map" class="cd-map"></div>
+    <svg id="cd-profile" class="cd-profile" viewBox="0 0 600 170" role="img" aria-label="Elevation profile of the climb"></svg>
+    <ul class="climb-plan" id="cd-plan"></ul>
+    <div class="route-actions">
+      <a class="btn" id="cd-dir" target="_blank" rel="noopener">Directions to the bottom</a>
+      <a class="btn" id="cd-gpx">Climb .gpx</a>
     </div>
   </dialog>
 

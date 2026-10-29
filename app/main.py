@@ -807,6 +807,12 @@ def suggest_climbs(workout_id: int, body: ClimbsIn, user=Depends(current_user)):
     return climbs.recommend(workout, body.lat, body.lon, user["ftp"], user["weight_kg"], user["threshold_pace_s_per_km"])
 
 
+@app.get("/api/places")
+def places(q: str = "", user=Depends(current_user)):
+    """Start points for climb suggestions, by name (towns, villages and hamlets in the climb area)."""
+    return climbs.find_places(q[:60])
+
+
 @app.get("/api/integrations")
 def integrations(user=Depends(current_user)):
     # The tile key is for the map under climb suggestions: a client-side key, restricted to our domain.

@@ -71,9 +71,10 @@ needs_data = pytest.mark.skipif(not climbs.available(), reason="climb database i
 @needs_data
 def test_recommendations_near_goldau():
     r = climbs.recommend(THRESHOLD_4x8, 47.0504, 8.5466, ftp=250, weight=75)
-    assert len(r["climbs"]) == 3 and not r["assumed"]["weight"]
+    assert len(r["climbs"]) == 4 and not r["assumed"]["weight"]
+    assert any("uphill" in line for line in r["howto"]) and r["howto"][0].startswith("Warm up 15 min")
     for c in r["climbs"]:
-        assert c["mode"] in ("repeats", "up") and c["plan"] and c["distance_km"] <= climbs.MAX_RIDE_KM
+        assert c["mode"] in ("repeats", "up") and c["plan"] and c["summary"] and c["distance_km"] <= climbs.MAX_RIDE_KM
         assert c["path"] and c["sections"] and all(a < b for a, b in c["sections"])
     starts = [c["work_start"] for c in r["climbs"]]
     assert all(haversine(a, b) > 600 for i, a in enumerate(starts) for b in starts[i + 1:])  # different hills
@@ -93,3 +94,12 @@ def test_a_workout_without_efforts_gets_an_explanation():
     easy = {"name": "Z2", "sport": "cycling", "steps": [{"type": "steady", "duration_s": 3600, "intensity": 0.65}]}
     r = climbs.recommend(easy, 47.0504, 8.5466, 250, 75)
     assert r["climbs"] == [] and "interval" in r["message"]
+
+
+@needs_data
+def test_start_points_by_name():
+    names = [p["label"] for p in climbs.find_places("gold")]
+    assert names[0] == "Goldau"  # names starting with the query, towns and villages first
+    oberdorf = [p["label"] for p in climbs.find_places("Oberdorf")]
+    assert len(set(oberdorf)) == len(oberdorf) > 1  # the many Oberdorfs are told apart
+    assert climbs.find_places("g") == []
