@@ -526,7 +526,8 @@ def _claude_errors():
     except anthropic.RateLimitError:
         raise HTTPException(429, "Too many requests to Claude right now. Try again in a minute.")
     except anthropic.APIStatusError as e:
-        raise HTTPException(502, f"Claude API error: {e.message}")
+        logger.error("Claude API error %s: %s", e.status_code, e.message)  # details for the log, not the chat
+        raise HTTPException(502, f"Claude couldn't answer (error {e.status_code}). Try again in a moment.")
     except anthropic.APIConnectionError:
         raise HTTPException(502, "Couldn't reach the Claude API.")
 

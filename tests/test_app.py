@@ -1452,6 +1452,35 @@ def test_planning_chat_history_is_capped():
     assert llm.trim_history(history[:8], 6) == history[:8]
 
 
+def test_claude_api_errors_reach_the_chat_short(client, monkeypatch):
+    import anthropic, httpx
+    client.post("/api/register", json={"email": "apierr@example.com", "password": "longenough"})
+    wid = client.post("/api/workouts").json()["id"]
+    long_msg = "messages.3.content.0: Invalid `signature` in `thinking` block. " * 3
+    def boom(**kw):
+        raise anthropic.BadRequestError(long_msg, response=httpx.Response(400, request=httpx.Request("POST", "https://x")), body=None)
+    client.fake.beta.messages.create = boom
+    r = client.post(f"/api/workouts/{wid}/chat", json={"message": "4x8"})
+    assert r.status_code == 502
+    assert r.json()["detail"] == "Claude couldn't answer (error 400). Try again in a moment."
+
+
+def test_trimmed_planning_history_drops_thinking_blocks():
+    """A thinking block is bound to the conversation it was written in; once the start is trimmed, the
+    API rejects kept ones ("Invalid signature in thinking block"), so they must go."""
+    turn = lambda i: [{"role": "user", "content": [{"type": "text", "text": f"ctx {i}"}]},  # noqa: E731
+                      {"role": "assistant", "content": [{"type": "thinking", "thinking": "…", "signature": "s"},
+                                                        {"type": "redacted_thinking", "data": "x"},
+                                                        {"type": "text", "text": f"done {i}"}]}]
+    history = [m for i in range(10) for m in turn(i)]
+    kept = llm.trim_history(history, 6)
+    blocks = [b for m in kept if m["role"] == "assistant" for b in m["content"]]
+    assert blocks and all(b["type"] == "text" for b in blocks)
+    assert history[1]["content"][0]["type"] == "thinking"  # the stored history isn't changed in place
+    # Nothing trimmed: replayed exactly as written, thinking included.
+    assert llm.trim_history(history[:8], 6) == history[:8]
+
+
 # --- training guidelines ----------------------------------------------------------------------
 
 def test_guidelines_want_a_warm_up_and_cool_down():

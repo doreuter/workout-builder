@@ -279,12 +279,27 @@ def plan_chat(user, history: list, user_text: str, plan_text: str, planner, clie
     return reply or "Done.", messages, usage
 
 
+THINKING_TYPES = ("thinking", "redacted_thinking")
+
+
 def trim_history(history: list, max_turns: int) -> list:
     """Keep only the last `max_turns` exchanges, cut at the start of a user text turn so tool calls and
-    their results stay together. Keeps a long-running chat (the planner) from growing without bound."""
+    their results stay together. Keeps a long-running chat (the planner) from growing without bound.
+
+    A thinking block is only valid with the exact conversation it was written in, so once the start is
+    cut, the kept turns' thinking blocks are dropped (the API rejects them otherwise). Those turns are
+    finished, so Claude doesn't need them; turns kept untrimmed replay unchanged."""
     starts = [i for i, m in enumerate(history) if m["role"] == "user" and isinstance(m["content"], list)
               and m["content"] and m["content"][0].get("type") == "text"]
-    return history[starts[-max_turns]:] if len(starts) > max_turns else history
+    if len(starts) <= max_turns:
+        return history
+    kept = []
+    for m in history[starts[-max_turns]:]:
+        if m["role"] == "assistant" and isinstance(m["content"], list):
+            content = [b for b in m["content"] if b.get("type") not in THINKING_TYPES]
+            m = {**m, "content": content or [{"type": "text", "text": "…"}]}
+        kept.append(m)
+    return kept
 
 
 def _run(client, system: str, tools: list, messages: list, handle, give_up: str):

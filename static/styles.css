@@ -163,7 +163,7 @@ label { display: grid; gap: .3rem; font-size: .9rem; }
 /* chat */
 .chat { display: flex; flex-direction: column; min-height: 0; }
 .messages { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: .6rem; }
-.msg { max-width: 88%; padding: .55rem .8rem; border-radius: 12px; white-space: pre-wrap; }
+.msg { max-width: 88%; padding: .55rem .8rem; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg.user { align-self: flex-end; background: var(--user-bubble); color: var(--accent-text); border-radius: 12px 12px 4px 12px; }
 .msg.assistant { align-self: flex-start; background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px 12px 12px 4px; }
 .msg.pending { color: var(--muted); font-style: italic; }
