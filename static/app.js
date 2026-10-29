@@ -816,10 +816,13 @@ async function setPlannedDate(id, date) {
 $("#w-plan-date").addEventListener("change", (e) => setPlannedDate(state.currentId, e.target.value || null));
 $("#w-plan-clear").addEventListener("click", () => setPlannedDate(state.currentId, null));
 
+const PLAN_WEEKS = 4;  // a typical training block; also fills the page
+const planEnd = (start) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + PLAN_WEEKS * 7 - 1);
+
 async function loadPlan() {
   if (!state.planStart) state.planStart = mondayOf(new Date());
   try {
-    state.plan = await api(`/api/plan?start=${isoLocal(state.planStart)}&days=14`);
+    state.plan = await api(`/api/plan?start=${isoLocal(state.planStart)}&days=${PLAN_WEEKS * 7}`);
     $("#p-error").hidden = true;
     renderPlan();
   } catch (err) {
@@ -830,20 +833,22 @@ async function loadPlan() {
 }
 
 function renderPlan() {
-  const { workouts, transcript } = state.plan;
+  const { workouts, transcript, activities = [] } = state.plan;
   const start = state.planStart;
-  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 13);
+  const end = planEnd(start);
   $("#p-range").textContent = `${start.toLocaleDateString(undefined, { day: "numeric", month: "short" })} – ${end.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`;
   const today = todayIso();
   const byDay = {};
   for (const w of workouts) (byDay[w.date] ||= []).push(w);
+  const doneByDay = {};  // what was actually done (Garmin), shown on past days
+  for (const a of activities) (doneByDay[a.date] ||= []).push(a);
 
   const box = $("#p-weeks");
   box.replaceChildren();
-  for (let wk = 0; wk < 2; wk++) {
+  for (let wk = 0; wk < PLAN_WEEKS; wk++) {
     const week = el("div", { class: "p-week" });
     const monday = new Date(start.getFullYear(), start.getMonth(), start.getDate() + wk * 7);
-    let secs = 0, tss = 0, count = 0;
+    let secs = 0, tss = 0, count = 0, doneSecs = 0, doneCount = 0;
     const grid = el("div", { class: "p-days" });
     for (let i = 0; i < 7; i++) {
       const d = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
@@ -871,11 +876,26 @@ function renderPlan() {
         item.append(off);
         cell.append(item);
       }
+      for (const a of doneByDay[iso] || []) {
+        doneSecs += a.duration_s || 0;
+        doneCount++;
+        const done = el("a", { class: "p-done", href: `https://connect.garmin.com/modern/activity/${a.id}`,
+          target: "_blank", rel: "noopener", title: "Done · open in Garmin Connect" });
+        const icon = a.sport === "running" ? "🏃" : a.sport === "cycling" ? "🚴" : "✓";
+        done.append(el("span", { class: "p-name" }, `${icon} ${a.name || "Activity"}`),
+          el("span", { class: "p-meta" }, [a.duration_s ? fmtDuration(a.duration_s) : null,
+            a.distance_m ? `${(a.distance_m / 1000).toFixed(0)} km` : null,
+            a.load ? `load ${a.load}` : null].filter(Boolean).join(" · ")));
+        cell.append(done);
+      }
       grid.append(cell);
     }
     const head = el("div", { class: "p-week-head" });
     head.append(el("span", {}, `Week of ${monday.toLocaleDateString(undefined, { day: "numeric", month: "short" })}`),
-      el("span", { class: "muted" }, count ? `${count} workout${count === 1 ? "" : "s"} · ${fmtDuration(secs)} · TSS ${Math.round(tss)}` : "nothing planned"));
+      el("span", { class: "muted" }, [
+        count ? `${count} planned · ${fmtDuration(secs)} · TSS ${Math.round(tss)}` : (doneCount ? null : "nothing planned"),
+        doneCount ? `${doneCount} done · ${fmtDuration(doneSecs)}` : null,
+      ].filter(Boolean).join("  ·  ")));
     week.append(head, grid);
     box.append(week);
   }
@@ -950,10 +970,10 @@ $("#p-next").addEventListener("click", () => { state.planStart = shiftWeeks(stat
 $("#p-today").addEventListener("click", () => { state.planStart = mondayOf(new Date()); loadPlan(); });
 $("#p-clear-open").addEventListener("click", () => {
   const start = state.planStart;
-  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 13);
+  const end = planEnd(start);
   const shown = state.plan?.workouts.length || 0;
   const fmt = (d) => d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
-  $("#clear-shown-label").textContent = `The two weeks shown (${fmt(start)} – ${fmt(end)}, ${shown} workout${shown === 1 ? "" : "s"})`;
+  $("#clear-shown-label").textContent = `The ${PLAN_WEEKS} weeks shown (${fmt(start)} – ${fmt(end)}, ${shown} workout${shown === 1 ? "" : "s"})`;
   $("#clear-msg").hidden = true;
   $("#plan-clear").showModal();
 });
@@ -963,7 +983,7 @@ $("#clear-confirm").addEventListener("click", async () => {
   const scope = f.scope.value, del = f.action.value === "delete";
   const start = state.planStart;
   const body = scope === "shown"
-    ? { start: isoLocal(start), end: isoLocal(new Date(start.getFullYear(), start.getMonth(), start.getDate() + 13)), delete: del }
+    ? { start: isoLocal(start), end: isoLocal(planEnd(start)), delete: del }
     : { start: todayIso(), delete: del };
   if (del && !confirm("Delete these workouts for good? This can't be undone.")) return;
   try {
@@ -1494,7 +1514,6 @@ $("#settings-btn").addEventListener("click", () => {
   f.pace.value = p ? `${Math.floor(p / 60)}:${String(p % 60).padStart(2, "0")}` : "";
   f.lthr_run.value = state.user.lthr_run ?? "";
   f.lthr_bike.value = state.user.lthr_bike ?? "";
-  f.endurance_ceiling_pct.value = state.user.endurance_ceiling_pct ?? "";
   f.training_rules.value = state.user.training_rules ?? "";
   f.querySelectorAll(".filled").forEach((i) => i.classList.remove("filled"));
   $("#garmin-fetch").hidden = !state.user.garmin;
@@ -1621,7 +1640,6 @@ $("#settings-save").addEventListener("click", async (e) => {
         threshold_pace_s_per_km: pace,
         lthr_run: num(f.lthr_run),
         lthr_bike: num(f.lthr_bike),
-        endurance_ceiling_pct: num(f.endurance_ceiling_pct),
         training_rules: f.training_rules.value.trim() || null,
       },
     });

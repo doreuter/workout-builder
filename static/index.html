@@ -256,12 +256,11 @@
         <label>Cycling threshold HR (bpm) <input name="lthr_bike" type="number" min="80" max="230" placeholder="e.g. 172"></label>
         <label>Running threshold pace (min/km) <input name="pace" inputmode="numeric" pattern="\d{1,2}:\d{2}" placeholder="e.g. 4:45"></label>
         <label>Running threshold HR (bpm) <input name="lthr_run" type="number" min="80" max="230" placeholder="e.g. 168"></label>
-        <label>Endurance ceiling (% FTP) <input name="endurance_ceiling_pct" type="number" min="40" max="85" placeholder="e.g. 63"></label>
       </div>
       <label>Your training rules
         <textarea name="training_rules" rows="4" maxlength="1000" placeholder="One short rule per line, e.g.&#10;Weekday sessions max 75 min&#10;Warm-up: 4×30s rising power&#10;No running two days in a row"></textarea>
       </label>
-      <p class="muted small">Claude follows these in both chats, on top of the app's own guidelines (a warm-up before hard work, a cool-down after). Short, one-per-line rules work best. The <strong>endurance ceiling</strong> above is enforced: Claude keeps steady base efforts at or below it.</p>
+      <p class="muted small">Claude follows these in both chats, on top of the app's own guidelines (a warm-up before hard work, a cool-down after). Short, one-per-line rules work best.</p>
       <p id="settings-error" class="error small" hidden></p>
       <div class="row">
         <button value="cancel" formnovalidate>Cancel</button>
@@ -318,7 +317,7 @@
       <h2>Clear the calendar</h2>
       <fieldset>
         <legend>Which workouts</legend>
-        <label class="choice"><input type="radio" name="scope" value="shown" checked> <span id="clear-shown-label">The two weeks shown</span></label>
+        <label class="choice"><input type="radio" name="scope" value="shown" checked> <span id="clear-shown-label">The weeks shown</span></label>
         <label class="choice"><input type="radio" name="scope" value="future"> Everything from today on</label>
       </fieldset>
       <fieldset>

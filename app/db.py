@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
     lthr_bike INTEGER,
     last_seen_at TEXT,  -- UTC, updated at most hourly
     training_rules TEXT,  -- the athlete's own rules for Claude, free text
-    endurance_ceiling_pct INTEGER,  -- cycling: endurance/base steady efforts shouldn't exceed this % FTP (enforced)
+    endurance_ceiling_pct INTEGER,  -- no longer used (removed from Settings 2026-10-29)
     session_version INTEGER NOT NULL DEFAULT 0,  -- raised by a password reset; older sessions stop working
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -100,7 +100,8 @@ CREATE INDEX IF NOT EXISTS idx_garmin_activities_day ON garmin_activities(user_i
 CREATE TABLE IF NOT EXISTS garmin_sync (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     synced_at TEXT,
-    error TEXT
+    error TEXT,
+    activities_from TEXT  -- earliest day whose activities were fetched (the calendar backfills older ones)
 );
 CREATE TABLE IF NOT EXISTS password_resets (
     token_hash TEXT PRIMARY KEY,       -- SHA-256 of the emailed token; the token itself is never stored
@@ -139,6 +140,8 @@ def init_db() -> None:
                            ("avg_speed", "REAL"), ("gap_speed", "REAL")):
             if name not in columns:
                 conn.execute(f"ALTER TABLE garmin_activities ADD COLUMN {name} {kind}")
+        if "activities_from" not in {r["name"] for r in conn.execute("PRAGMA table_info(garmin_sync)")}:
+            conn.execute("ALTER TABLE garmin_sync ADD COLUMN activities_from TEXT")
         columns = {r["name"] for r in conn.execute("PRAGMA table_info(users)")}
         for name, kind in (("lthr_run", "INTEGER"), ("lthr_bike", "INTEGER"), ("last_seen_at", "TEXT"),
                            ("training_rules", "TEXT"), ("endurance_ceiling_pct", "INTEGER"),
@@ -192,14 +195,13 @@ def any_user_with_email(emails) -> bool:
 
 
 def update_profile(user_id: int, ftp, threshold_pace_s_per_km, lthr_run=None, lthr_bike=None,
-                   training_rules=None, endurance_ceiling_pct=None) -> None:
+                   training_rules=None) -> None:
     # max_hr is no longer edited (threshold heart rates replaced it); a stored value is kept as it was.
     with connect() as conn:
         conn.execute(
-            """UPDATE users SET ftp = ?, threshold_pace_s_per_km = ?, lthr_run = ?, lthr_bike = ?, training_rules = ?,
-                      endurance_ceiling_pct = ?
+            """UPDATE users SET ftp = ?, threshold_pace_s_per_km = ?, lthr_run = ?, lthr_bike = ?, training_rules = ?
                WHERE id = ?""",
-            (ftp, threshold_pace_s_per_km, lthr_run, lthr_bike, training_rules, endurance_ceiling_pct, user_id),
+            (ftp, threshold_pace_s_per_km, lthr_run, lthr_bike, training_rules, user_id),
         )
 
 
@@ -270,7 +272,7 @@ def export_user(user_id: int) -> dict:
             return [dict(r) for r in conn.execute(sql, (user_id,)).fetchall()]
         user = dict(conn.execute(
             "SELECT email, ftp, threshold_pace_s_per_km, max_hr, lthr_run, lthr_bike, training_rules, "
-            "endurance_ceiling_pct, created_at, last_seen_at "
+            "created_at, last_seen_at "
             "FROM users WHERE id = ?", (user_id,)
         ).fetchone())
         return {
@@ -441,6 +443,34 @@ def garmin_activities(user_id: int, since: str):
         return conn.execute(
             "SELECT * FROM garmin_activities WHERE user_id = ? AND day >= ? ORDER BY start_local", (user_id, since)
         ).fetchall()
+
+
+def garmin_activities_between(user_id: int, start: str, end: str):
+    with connect() as conn:
+        return conn.execute(
+            """SELECT activity_id, day, name, type_key, duration_s, tss, training_load, avg_speed
+               FROM garmin_activities WHERE user_id = ? AND day BETWEEN ? AND ? ORDER BY start_local""",
+            (user_id, start, end),
+        ).fetchall()
+
+
+def garmin_activities_from(user_id: int) -> str | None:
+    """The earliest day whose activities have been fetched: the calendar's backfill marker, else the
+    first synced day (the initial sync reaches back BACKFILL_DAYS)."""
+    with connect() as conn:
+        row = conn.execute("SELECT activities_from FROM garmin_sync WHERE user_id = ?", (user_id,)).fetchone()
+        if row and row["activities_from"]:
+            return row["activities_from"]
+        return conn.execute("SELECT MIN(day) AS d FROM garmin_days WHERE user_id = ?", (user_id,)).fetchone()["d"]
+
+
+def set_garmin_activities_from(user_id: int, day: str) -> None:
+    with connect() as conn:
+        conn.execute(
+            """INSERT INTO garmin_sync (user_id, activities_from) VALUES (?, ?)
+               ON CONFLICT (user_id) DO UPDATE SET activities_from = excluded.activities_from""",
+            (user_id, day),
+        )
 
 
 def garmin_latest_day(user_id: int) -> str | None:

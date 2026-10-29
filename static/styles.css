@@ -276,7 +276,7 @@ button.danger { background: var(--error); border-color: var(--error); color: #ff
 .p-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
 .p-day { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; min-height: 110px; padding: .4rem; display: flex; flex-direction: column; gap: .35rem; }
 .p-day.today { border-color: var(--accent); }
-.p-day.past { opacity: .6; }
+.p-day.past .p-day-head, .p-day.past .p-item { opacity: .6; }  /* done activities stay clear */
 .p-day-head { font-size: .78rem; color: var(--muted); }
 .p-day.today .p-day-head { color: var(--accent); }
 .p-item { position: relative; background: var(--surface-2); border-radius: 6px; border-left: 4px solid var(--z2); padding: .3rem 1.3rem .3rem .45rem; cursor: pointer; display: grid; gap: .1rem; }
@@ -285,6 +285,11 @@ button.danger { background: var(--error); border-color: var(--error); color: #ff
 .p-meta { font-family: var(--mono); font-size: .7rem; color: var(--muted); }
 .p-off { position: absolute; top: .15rem; right: .15rem; border: none; background: none; color: var(--muted); padding: .1rem .25rem; font-size: .7rem; visibility: hidden; }
 .p-item:hover .p-off, .p-item:focus-within .p-off { visibility: visible; }
+/* Done activities from Garmin: quieter than planned workouts, with a green edge. */
+.p-done { display: grid; gap: .1rem; padding: .3rem .45rem; border-radius: 6px; border-left: 4px solid var(--good);
+  background: transparent; border-top: 1px dashed var(--border); border-right: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border); color: inherit; text-decoration: none; }
+.p-done:hover { background: var(--surface-2); }
 .clear-dialog { padding: 1.4rem; display: grid; gap: 1rem; }
 .clear-dialog fieldset { border: none; margin: 0; padding: 0; display: grid; gap: .45rem; }
 .clear-dialog legend { font-size: .85rem; color: var(--muted); margin-bottom: .35rem; }
@@ -306,7 +311,7 @@ button.danger { background: var(--error); border-color: var(--error); color: #ff
   .p-days { grid-template-columns: 1fr; }
   .p-day { min-height: 0; flex-direction: row; flex-wrap: wrap; align-items: center; }
   .p-day-head { width: 4.5rem; flex: none; }
-  .p-item { flex: 1 1 12rem; }
+  .p-item, .p-done { flex: 1 1 12rem; }
   .p-off { visibility: visible; }
 }
 .readiness { grid-column: 1 / -1; grid-row: 2; overflow-y: auto; padding: 16px 24px 32px; min-width: 0; }

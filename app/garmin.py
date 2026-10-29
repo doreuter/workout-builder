@@ -17,6 +17,7 @@ RESYNC_DAYS = 3  # re-read the last few days: sleep and HRV can arrive after the
 MIN_SYNC_INTERVAL = timedelta(hours=3)
 CHUNK_DAYS = 28  # keep each range request modest
 RECOVERY_DAYS = 14  # files read for recovery time: 4 days would do for today, 14 give past scores theirs
+HISTORY_DAYS = 730  # how far back the calendar may fetch past activities
 
 
 class GarminError(RuntimeError):
@@ -169,6 +170,28 @@ def _sync_daily(client, user_id: int, lo: date, hi: date) -> None:
             "bb_drained": _get(s, "bodyBattery", "drainedValue"),
             "stress_avg": stress if stress is not None and stress >= 0 else None,  # Garmin uses -1/-2 for "no data"
         })
+
+
+def backfill_activities(user, start: date, *, today: date | None = None, client=None) -> None:
+    """Fetch activities older than what's stored, so the calendar can show past weeks. Each stretch is
+    fetched once: the marker moves back to `start` (no further than HISTORY_DAYS)."""
+    if not is_owner(user):
+        return
+    known = db.garmin_activities_from(user["id"])
+    if not known:
+        return  # never synced: the regular sync fetches the recent past first
+    today = today or date.today()
+    start = max(start, today - timedelta(days=HISTORY_DAYS))
+    known = date.fromisoformat(known)
+    if start >= known:
+        return
+    try:
+        client = client or _client()
+        for lo, hi in _chunks(start, known - timedelta(days=1)):
+            _sync_activities(client, user["id"], lo, hi)
+    except Exception as e:
+        raise GarminError(f"Couldn't load older activities from Garmin ({type(e).__name__}).") from e
+    db.set_garmin_activities_from(user["id"], start.isoformat())
 
 
 def _sync_activities(client, user_id: int, lo: date, hi: date) -> None:

@@ -82,14 +82,14 @@ The online version can't reach anyone's Zwift folder: people download `.zwo`/`.f
 
 ## Calendar
 
-The **Plan** tab shows two weeks (Monday to Sunday) with planned workouts, coloured by the zone each session
+The **Plan** tab shows four weeks (Monday to Sunday) with planned workouts, coloured by the zone each session
 holds for at least five minutes, and weekly time and TSS. Next to it, **Plan with Claude** puts complete
 workouts on dates ("plan next week: 4 rides, long ride Saturday"), replaces or removes them (`plan_workouts`,
 `remove_planned` in `app/llm.py`), using readiness and recovery time for the next two days when Garmin is
 connected. The planning chat keeps its last 6 exchanges; the calendar itself is sent with every message.
-Any workout can also be put on a date, or taken off, from its own view. **Clear…** empties the two weeks shown or everything from today on, keeping the workouts in the
+Any workout can also be put on a date, or taken off, from its own view. **Clear…** empties the four weeks shown or everything from today on, keeping the workouts in the
 Library or deleting them. The workout list groups workouts into **Up next** (planned, today on), **Past** (folded) and
-**Library** (not planned), with search and a ride/run filter; empty drafts aren't listed.
+**Library** (not planned), with search and a ride/run filter; empty drafts aren't listed. With Garmin connected, past days also show what you actually did (from Garmin, linked to Garmin Connect) and each week totals it; paging back past what's stored fetches that stretch from Garmin once (up to two years, `backfill_activities` in `app/garmin.py`).
 
 ## Running and training guidelines
 
@@ -118,7 +118,7 @@ chat message ──► Claude calls the set_workout tool
 ```
 
 - **Workout format** (`app/workout.py`): steps of type warmup / cooldown / steady / ramp / rest / free, plus `repeat` blocks. Intensity is a fraction of FTP.
-- **Accounts** (`app/auth.py`, `app/db.py`): email and password (scrypt-hashed), signed session cookie, SQLite in `data/app.db`. A password reset raises the user's session version, which signs out every other browser (the cookie can't be deleted from the server, but older versions are refused). Login is rate limited per IP address and per account (10 wrong passwords in 15 minutes; then even the right one waits), reset emails to 3 per address per hour. The client IP comes from Cloudflare's `CF-Connecting-IP` in front of Render, not from `X-Forwarded-For`, which clients can fake. Requests over 1 MB are refused (413) before the body is read, except the admin database restore, which streams with its own 200 MB cap. Responses carry a content-security policy (no inline scripts, `form-action 'self'`), `Permissions-Policy`, `Cross-Origin-Opener-Policy` and `X-Frame-Options: DENY`. Each user's profile holds cycling FTP, running threshold pace, and cycling and running threshold heart rate; Claude gets them with every message. With Garmin connected, **Fetch from Garmin** in Settings fills in FTP (from the latest ride with power) and both threshold heart rates (from Garmin's heart-rate zones). Garmin's Personal API doesn't include threshold pace, so that one is entered by hand. Advanced riders can also set an **endurance ceiling** (% FTP): Claude keeps base/endurance steady efforts at or below it, and the app enforces the ceiling on steps labelled "Endurance" (`guideline_problems` in `app/workout.py`). Free-text training rules remain advisory; when any rule is set, Claude ends its reply with a line listing which it applied.
+- **Accounts** (`app/auth.py`, `app/db.py`): email and password (scrypt-hashed), signed session cookie, SQLite in `data/app.db`. A password reset raises the user's session version, which signs out every other browser (the cookie can't be deleted from the server, but older versions are refused). Login is rate limited per IP address and per account (10 wrong passwords in 15 minutes; then even the right one waits), reset emails to 3 per address per hour. The client IP comes from Cloudflare's `CF-Connecting-IP` in front of Render, not from `X-Forwarded-For`, which clients can fake. Requests over 1 MB are refused (413) before the body is read, except the admin database restore, which streams with its own 200 MB cap. Responses carry a content-security policy (no inline scripts, `form-action 'self'`), `Permissions-Policy`, `Cross-Origin-Opener-Policy` and `X-Frame-Options: DENY`. Each user's profile holds cycling FTP, running threshold pace, and cycling and running threshold heart rate; Claude gets them with every message. With Garmin connected, **Fetch from Garmin** in Settings fills in FTP (from the latest ride with power) and both threshold heart rates (from Garmin's heart-rate zones). Garmin's Personal API doesn't include threshold pace, so that one is entered by hand. Training rules are advisory; when they're set, Claude ends its reply with a line listing which it applied.
 - **Chat history** is stored per workout and only ever appended to, so follow-up edits ("make the intervals longer") keep their context.
 
 ## Exports

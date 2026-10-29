@@ -92,7 +92,6 @@ class Profile(BaseModel):
     lthr_run: int | None = Field(default=None, ge=80, le=230)
     lthr_bike: int | None = Field(default=None, ge=80, le=230)
     training_rules: str | None = Field(default=None, max_length=1000)
-    endurance_ceiling_pct: int | None = Field(default=None, ge=40, le=85)
 
 
 def _is_admin(user) -> bool:
@@ -107,7 +106,6 @@ def _user_json(user) -> dict:
         "lthr_run": user["lthr_run"],
         "lthr_bike": user["lthr_bike"],
         "training_rules": user["training_rules"],
-        "endurance_ceiling_pct": user["endurance_ceiling_pct"],
         "is_admin": _is_admin(user),
         "messages_left_today": _messages_left(user),
         "garmin": garmin.is_owner(user),
@@ -189,7 +187,7 @@ def me(user=Depends(current_user)):
 @app.put("/api/me/profile")
 def update_profile(body: Profile, user=Depends(current_user)):
     db.update_profile(user["id"], body.ftp, body.threshold_pace_s_per_km, body.lthr_run, body.lthr_bike,
-                      (body.training_rules or "").strip() or None, body.endurance_ceiling_pct)
+                      (body.training_rules or "").strip() or None)
     return _user_json(db.get_user(user["id"]))
 
 
@@ -574,6 +572,15 @@ def _planned_view(user, row) -> dict:
             "peak": _peak_intensity(flatten(workout, pace)) if workout else None}
 
 
+def _activity_view(a) -> dict:
+    kind = a["type_key"] or ""
+    sport = "running" if "running" in kind else "cycling" if any(k in kind for k in ("cycling", "biking", "ride")) else "other"
+    dist = a["avg_speed"] * a["duration_s"] if a["avg_speed"] and a["duration_s"] else None
+    return {"id": a["activity_id"], "date": a["day"], "name": a["name"], "sport": sport,
+            "duration_s": round(a["duration_s"]) if a["duration_s"] else None, "distance_m": round(dist) if dist else None,
+            "load": round(a["training_load"]) if a["training_load"] else None}
+
+
 def _peak_intensity(segments, min_seconds: int = 300) -> float | None:
     """The highest intensity a session holds for at least five minutes in total, so the calendar can
     colour it by its main zone (a short opener at 110 % doesn't make threshold work a VO2 session)."""
@@ -618,10 +625,19 @@ def get_plan(start: str, days: int = 14, user=Depends(current_user)):
     days = max(1, min(days, 42))
     end = first + timedelta(days=days - 1)
     rows = db.planned_workouts(user["id"], first.isoformat(), end.isoformat())
+    activities = []
+    if garmin.is_owner(user):  # what was actually done, from Garmin, on the days shown
+        try:
+            garmin.sync(user)  # only fetches when the last sync is a few hours old
+            garmin.backfill_activities(user, first)  # paging back past what's stored
+        except garmin.GarminError:
+            pass  # show what's stored
+        activities = [_activity_view(a) for a in db.garmin_activities_between(user["id"], first.isoformat(), end.isoformat())]
     return {
         "start": first.isoformat(),
         "end": end.isoformat(),
         "workouts": [_planned_view(user, r) for r in rows],
+        "activities": activities,
         "transcript": llm.visible_transcript(db.plan_chat(user["id"])),
     }
 
@@ -646,8 +662,7 @@ class _Planner:
                 day = self._date(item.get("date"))
                 workout = llm.check_workout({**(item.get("workout") or {}),
                                              "guideline_exception": item.get("guideline_exception")},
-                                            self.user["threshold_pace_s_per_km"],
-                                            self.user["endurance_ceiling_pct"])
+                                            self.user["threshold_pace_s_per_km"])
                 old = item.get("replaces_id")
                 if old is not None:
                     row = db.get_workout(self.user["id"], int(old))
