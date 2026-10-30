@@ -169,7 +169,7 @@ and suggests climbs near where you start (`app/climbs.py`, `POST /api/workouts/{
   for a pop-up with the climb on the map (effort stretch and turn point marked), its elevation profile,
   the full plan, directions to the bottom and the climb as GPX.
 - The start is a place name, searched in the towns, villages and hamlets shipped with the climbs
-  (`climbdata/central-ch-places.json.gz`, `GET /api/places?q=`), or your location.
+  (`climbdata/switzerland-places.json.gz`, `GET /api/places?q=`), or your location.
 - The planner: efforts come from the workout (over-unders count as one); with FTP and weight (Settings;
   **Fetch from Garmin** fills in the latest weigh-in; 75 kg and 3.3 W/kg assumed when unset) it works out
   how far up a climb each effort reaches on the real profile, puts the efforts on the stretch that suits
@@ -184,8 +184,8 @@ and suggests climbs near where you start (`app/climbs.py`, `POST /api/workouts/{
 ## Climb database (for interval routes)
 
 Interval rides are planned on real climbs: ride out as the warm-up, do the efforts uphill, roll back
-down to recover. The climbs come from our own database, `climbdata/central-ch.json.gz` (5,000+ climbs
-within 50 km of Goldau), built offline by `scripts/build_climbs.py` from the Swiss OpenStreetMap extract
+down to recover. The climbs come from our own database, `climbdata/switzerland.jsonl.gz` (11,000+ climbs
+across Switzerland), built offline by `scripts/build_climbs.py` from the Swiss OpenStreetMap extract
 and Swisstopo's 2 m elevation model. `app/climbdb.py` finds the climbs across the road network whatever
 the streets are called, and records each one's gradient, steadiness, traffic signals, stop signs, rail
 crossings, junctions with bigger roads and bike-route share. See `climbdata/README.md` for the format,

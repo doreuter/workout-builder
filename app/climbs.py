@@ -18,15 +18,16 @@ import gzip
 import heapq
 import json
 import math
+from array import array
 from pathlib import Path
 
-from .climbdb import haversine, path_points
+from .climbdb import haversine, path_points, read_climbs, unpack_road_graph
 from .howto import minutes as _minutes
 from .howto import structure
 
-DATA = Path(__file__).resolve().parent.parent / "climbdata" / "central-ch.json.gz"
-ROADS = DATA.with_name("central-ch-roads.json.gz")  # bigger roads, for distances by road
-PLACES = DATA.with_name("central-ch-places.json.gz")  # towns, villages, hamlets: start points by name
+DATA = Path(__file__).resolve().parent.parent / "climbdata" / "switzerland.jsonl.gz"
+ROADS = DATA.with_name("switzerland-roads.bin.gz")  # bigger roads, for distances by road (packed)
+PLACES = DATA.with_name("switzerland-places.json.gz")  # towns, villages, hamlets: start points by name
 SEARCH_KM = 30          # straight-line radius searched around the start
 MAX_RIDE_KM = 45        # by road
 ROAD_FACTOR = 1.3       # straight line -> rough road distance, where the road graph can't help
@@ -49,7 +50,7 @@ def available() -> bool:
 def _load() -> list:
     global _db
     if _db is None:
-        _db = json.load(gzip.open(DATA, "rt"))["climbs"] if DATA.exists() else []
+        _db = read_climbs(DATA)[1] if DATA.exists() else []
     return _db
 
 
@@ -77,17 +78,14 @@ def find_places(query: str, limit: int = 8) -> list:
 
 
 def _road_graph() -> dict | None:
+    """The road graph (see climbdb.unpack_road_graph) plus a grid of its nodes by 0.01° cell."""
     global _roads
     if _roads is None and ROADS.exists():
-        g = json.load(gzip.open(ROADS, "rt"))
-        adj = [[] for _ in g["nodes"]]
-        for u, v, length in g["edges"]:
-            adj[u].append((v, length))
-            adj[v].append((u, length))
+        g = unpack_road_graph(gzip.decompress(ROADS.read_bytes()))
         grid = {}
-        for i, (la, lo) in enumerate(g["nodes"]):
-            grid.setdefault((int(la * 100), int(lo * 100)), []).append(i)
-        _roads = {"nodes": g["nodes"], "adj": adj, "grid": grid}
+        for i, (la, lo) in enumerate(zip(g["lat"], g["lon"])):
+            grid.setdefault((int(la * 100), int(lo * 100)), array("i")).append(i)
+        _roads = {**g, "grid": grid}
     return _roads
 
 
@@ -102,7 +100,7 @@ def road_km(lat: float, lon: float) -> dict:
         for dx in range(-r, r + 1):
             for dy in range(-r, r + 1):
                 for i in g["grid"].get((int(lat * 100) + dx, int(lon * 100) + dy), ()):
-                    near.append((haversine((lat, lon), g["nodes"][i]) * ROAD_FACTOR, i))
+                    near.append((haversine((lat, lon), (g["lat"][i], g["lon"][i])) * ROAD_FACTOR, i))
         if len(near) >= 4:
             break
     if not near:
@@ -116,8 +114,9 @@ def road_km(lat: float, lon: float) -> dict:
         d, n = heapq.heappop(q)
         if d > dist.get(n, 1e18) or d > MAX_RIDE_KM * 1000:
             continue
-        for m, length in g["adj"][n]:
-            nd = d + length
+        nbr, length = g["nbr"], g["length"]
+        for k in range(g["start"][n], g["start"][n + 1]):
+            m, nd = nbr[k], d + length[k]
             if nd < dist.get(m, 1e18):
                 dist[m] = nd
                 heapq.heappush(q, (nd, m))
@@ -316,8 +315,7 @@ def recommend(workout: dict, lat: float, lon: float, ftp: int | None, weight: in
         near.append((rough, km, c))
     if not near:
         return {"howto": howto, "climbs": [], "assumed": assumed,
-                "message": "No climbs in our database near there yet. It covers about 50 km around Goldau "
-                           "in Central Switzerland."}
+                "message": "No climbs in our database near there. It covers the roads of Switzerland."}
     near.sort(key=lambda x: -x[0])
 
     ideal_km = warm_s / 3600 * APPROACH_KMH

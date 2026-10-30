@@ -18,6 +18,7 @@ import math
 import statistics
 from collections import defaultdict
 from dataclasses import dataclass, field
+from itertools import accumulate
 
 RANK = {"primary": 5, "primary_link": 5, "secondary": 4, "secondary_link": 4, "tertiary": 3, "tertiary_link": 3,
         "unclassified": 2, "residential": 2, "service": 1, "track": 1, "cycleway": 1}
@@ -522,3 +523,71 @@ def place_name(pt, places: list, passes: list, top: bool) -> str:
             return p[1]
         return nearest({"peak"} | small, 900) or nearest(settle, 2500) or nearest(small, 3000) or ""
     return nearest(settle, 2500) or nearest(small, 1500) or nearest(settle, 6000) or nearest(small, 4000) or ""
+
+
+# --- the road graph, packed --------------------------------------------------------------------
+# All of Switzerland's bigger roads as typed arrays (compressed sparse rows), so the app loads them
+# without building millions of Python objects: node i's neighbours are nbr[start[i]:start[i + 1]], with
+# road lengths (m) in length[]. File: b"RG1", node count, link count, then lat, lon, start, nbr, length.
+
+def pack_road_graph(nodes: list, edges: list) -> bytes:
+    """[[lat, lon]], [[a, b, metres]] -> bytes for unpack_road_graph."""
+    import struct
+    from array import array
+    n = len(nodes)
+    degree = [0] * (n + 1)
+    for a, b, _ in edges:
+        degree[a + 1] += 1
+        degree[b + 1] += 1
+    start = array("i", accumulate(degree))
+    fill = array("i", start[:-1])
+    nbr, length = array("i", bytes(4 * start[-1])), array("f", bytes(4 * start[-1]))
+    for a, b, m in edges:
+        for u, v in ((a, b), (b, a)):
+            nbr[fill[u]], length[fill[u]] = v, m
+            fill[u] += 1
+    lat, lon = array("d", (p[0] for p in nodes)), array("d", (p[1] for p in nodes))
+    return b"RG1" + struct.pack("<ii", n, start[-1]) + b"".join(x.tobytes() for x in (lat, lon, start, nbr, length))
+
+
+def unpack_road_graph(data: bytes) -> dict:
+    """{"lat", "lon", "start", "nbr", "length"} typed arrays from pack_road_graph's bytes."""
+    import struct
+    from array import array
+    assert data[:3] == b"RG1", "not a packed road graph"
+    n, links = struct.unpack_from("<ii", data, 3)
+    out, pos = {}, 11
+    for name, code, count in (("lat", "d", n), ("lon", "d", n), ("start", "i", n + 1), ("nbr", "i", links),
+                              ("length", "f", links)):
+        a = array(code)
+        a.frombytes(data[pos:pos + a.itemsize * count])
+        out[name], pos = a, pos + a.itemsize * count
+    return out
+
+
+# --- the climb file ---------------------------------------------------------------------------
+# JSON lines, gzip'd: the first line describes the database (region, sources, build date), each further
+# line is one climb. Read line by line, so loading all of Switzerland never holds the whole text at once.
+
+def write_climbs(path: str, header: dict, climbs: list) -> None:
+    import gzip
+    import json
+    with gzip.open(path, "wt", encoding="utf-8") as f:
+        f.write(json.dumps(header, ensure_ascii=False, separators=(",", ":")) + "\n")
+        for c in climbs:
+            f.write(json.dumps(c, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+
+def read_climbs(path) -> tuple[dict, list]:
+    """(header, climbs) from write_climbs' file; elevations come back as packed floats."""
+    import gzip
+    import json
+    from array import array
+    climbs = []
+    with gzip.open(path, "rt", encoding="utf-8") as f:
+        header = json.loads(f.readline())
+        for line in f:
+            c = json.loads(line)
+            c["path"]["ele"] = array("f", c["path"]["ele"])
+            climbs.append(c)
+    return header, climbs

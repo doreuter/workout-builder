@@ -1,15 +1,13 @@
 """Acceptance tests for the built climb database: climbs we know must be in it, whole, with sane numbers."""
 
-import gzip
-import json
 import math
 from pathlib import Path
 
 import pytest
 
-from app.climbdb import path_points
+from app.climbdb import path_points, read_climbs
 
-DATA = Path(__file__).resolve().parent.parent / "climbdata" / "central-ch.json.gz"
+DATA = Path(__file__).resolve().parent.parent / "climbdata" / "switzerland.jsonl.gz"
 
 # name, foot, top, length km (lo, hi), average % (lo, hi)
 KNOWN = [
@@ -33,8 +31,8 @@ def _hav(a, b):
 @pytest.fixture(scope="module")
 def climbs():
     if not DATA.exists():
-        pytest.skip("climbdata/central-ch.json.gz isn't built")
-    return json.load(gzip.open(DATA, "rt"))["climbs"]
+        pytest.skip("climbdata/switzerland.jsonl.gz isn't built")
+    return read_climbs(DATA)[1]
 
 
 def _section(c, foot, top, near=350):
@@ -65,3 +63,30 @@ def test_climbs_are_well_formed(climbs):
         p = path_points(c)
         assert p[0][3] == 0 and p[-1][3] == c["length_m"] and abs(p[-1][2] - p[0][2] - c["gain_m"]) <= 1
         assert c["from"] and c["to"]
+
+
+# The database covers all of Switzerland: passes and hills in every region, (top, minimum climb km).
+ACROSS_CH = {
+    "Sustenpass (from Wassen)": ((46.7297, 8.4473), 15),
+    "Julierpass": ((46.4724, 9.7280), 6),
+    "Weissenstein (from Solothurn)": ((47.2525, 7.5094), 8),
+    "Col du Mollendruz": ((46.6487, 6.3653), 8),
+    "Gurnigelpass": ((46.7323, 7.4481), 8),
+    "Col des Mosses": ((46.3966, 7.1024), 12),
+    "Lukmanier": ((46.5631, 8.8013), 12),
+}
+
+
+@pytest.mark.parametrize("name", ACROSS_CH)
+def test_climbs_across_switzerland(climbs, name):
+    top, km = ACROSS_CH[name]
+    near = [c for c in climbs if _hav(top, c["top"]) < 600]
+    assert any(c["length_m"] >= km * 1000 for c in near), f"{name}: {[(c['from'], c['length_m']) for c in near]}"
+
+
+def test_road_graph_packs_and_unpacks():
+    from app.climbdb import pack_road_graph, unpack_road_graph
+    g = unpack_road_graph(pack_road_graph([[47.0, 8.5], [47.01, 8.5], [47.0, 8.51]], [[0, 1, 1100], [0, 2, 760]]))
+    neighbours = lambda i: sorted(zip(g["nbr"][g["start"][i]:g["start"][i + 1]], g["length"][g["start"][i]:g["start"][i + 1]]))
+    assert neighbours(0) == [(1, 1100.0), (2, 760.0)] and neighbours(1) == [(0, 1100.0)]
+    assert list(g["lat"]) == [47.0, 47.01, 47.0]

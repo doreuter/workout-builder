@@ -1,6 +1,6 @@
 # Climb database
 
-`central-ch.json.gz` lists road climbs within 50 km of Goldau (Central Switzerland), found by
+`switzerland.jsonl.gz` lists the road climbs of Switzerland (11,301 in the 2026-10-30 build), found by
 `scripts/build_climbs.py` with the climb finder in `app/climbdb.py`. The app reads it to suggest where
 to ride a workout's intervals; it's built offline, not on the server.
 
@@ -16,10 +16,12 @@ Anywhere a climb is shown, credit "© OpenStreetMap contributors, © swisstopo".
 
 ## What's in it
 
+JSON lines, gzip'd: the first line describes the database, then one climb per line
+(`app.climbdb.read_climbs` reads it line by line, so the whole country loads in little memory).
+
 ```json
-{"version": 1, "built": "2026-10-29", "region": "Central Switzerland", "center": [47.0504, 8.5466],
- "radius_km": 50, "sources": {...},
- "climbs": [{
+{"version": 1, "built": "2026-10-30", "region": "Switzerland", "center": [46.8, 8.23], "radius_km": 175, "sources": {...}}
+{
    "id": "c00001", "from": "Schwyz", "to": "Ibergeregg",
    "length_m": 10420, "gain_m": 878, "foot_ele": 520, "top_ele": 1398,
    "avg": 8.4, "max200": 11.6, "steadiness": 1.9,
@@ -30,7 +32,7 @@ Anywhere a climb is shown, credit "© OpenStreetMap contributors, © swisstopo".
    "bike_route": 0.9, "max_speed": 80,
    "foot": [47.0186, 8.6531], "top": [47.0174, 8.7332],
    "path": {"step_m": 20, "polyline": "…", "ele": [520.4, 522.1, ...]}
- }]}
+}
 ```
 
 `path` holds a point every 20 m from the foot (the last one is the top): positions as a Google encoded
@@ -52,9 +54,14 @@ Ecce Homo, Zug → Zugerberg, Schwyz → Schwyzerhöhe and → Ibergeregg, Satte
 ```bash
 python -m venv .venv-build && .venv-build/bin/pip install -r requirements-build.txt
 curl -L -o switzerland.osm.pbf https://download.geofabrik.de/europe/switzerland-latest.osm.pbf
-.venv-build/bin/python scripts/build_climbs.py switzerland.osm.pbf climbdata/central-ch.json.gz \
-    --center 47.0504 8.5466 --radius-km 50 --cache ~/.cache/vibegrind/elevation.jsonl
+.venv-build/bin/python scripts/build_climbs.py switzerland.osm.pbf climbdata/switzerland.jsonl.gz \
+    --cache ~/.cache/vibegrind/elevation.jsonl
 ```
 
-The extract is about 550 MB and reading it takes a minute or two. Elevation answers are cached, so a
+The extract is about 550 MB; the whole build takes about 25 minutes (10 of them asking Swisstopo for
+elevation). Elevation answers are cached, so a
 rebuild only asks Swisstopo about roads it hasn't seen.
+
+Next to it: `switzerland-roads.bin.gz`, the bigger roads as a packed graph for distances by road
+(`app.climbdb.pack_road_graph`), and `switzerland-places.json.gz`, the towns, villages and hamlets you can
+start from.

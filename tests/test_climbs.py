@@ -190,6 +190,14 @@ def test_doing_outside_needs_no_start_place():
 
 
 @needs_data
+def test_climbs_all_over_switzerland():
+    for lat, lon in [(46.005, 8.952), (46.52, 6.63), (46.85, 9.53), (47.42, 9.37)]:  # Lugano, Lausanne, Chur, St. Gallen
+        r = climbs.recommend(TEMPO_WITH_OPENERS, lat, lon, 300, 72)
+        assert len(r["climbs"]) == 4 and all(c["distance_km"] < 40 for c in r["climbs"])
+    assert climbs.find_places("Lugano")[0]["name"] == "Lugano"
+
+
+@needs_data
 def test_outside_plan_uses_the_tempo_efforts():
     r = climbs.recommend(TEMPO_WITH_OPENERS, 47.0504, 8.5466, 360, 75)
     assert any("at least 8 min" in l for l in r["howto"])

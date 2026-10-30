@@ -4,11 +4,11 @@ Run offline (not on the server). Needs `pip install -r requirements-build.txt` (
   - an OSM extract, e.g. https://download.geofabrik.de/europe/switzerland-latest.osm.pbf
   - network access to Swisstopo's profile service (api3.geo.admin.ch), used for elevation
 
-    python scripts/build_climbs.py switzerland.osm.pbf climbdata/central-ch.json.gz \\
-        --center 47.0504 8.5466 --radius-km 50 --cache /tmp/climb-elevation-cache.jsonl
+    python scripts/build_climbs.py switzerland.osm.pbf climbdata/switzerland.jsonl.gz \\
+        --center 46.8 8.23 --radius-km 175 --region Switzerland --cache /tmp/climb-elevation-cache.jsonl
 
 Elevation answers are cached in --cache, so a rebuild only asks for roads it hasn't seen. The output is
-a gzip'd JSON list of climbs (see climbdata/README.md); the app reads it, never this script.
+gzip'd JSON lines, one climb per line (see climbdata/README.md); the app reads it, never this script.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from app.climbdb import Network, place_name  # noqa: E402
+from app.climbdb import Network, pack_road_graph, place_name, write_climbs  # noqa: E402
 
 ROAD = {"primary", "primary_link", "secondary", "secondary_link", "tertiary", "tertiary_link",
         "unclassified", "residential", "track", "service", "cycleway"}
@@ -286,9 +286,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("pbf")
     ap.add_argument("out")
-    ap.add_argument("--center", nargs=2, type=float, default=[47.0504, 8.5466], metavar=("LAT", "LON"))
-    ap.add_argument("--radius-km", type=float, default=50)
-    ap.add_argument("--region", default="Central Switzerland")
+    ap.add_argument("--center", nargs=2, type=float, default=[46.8, 8.23], metavar=("LAT", "LON"))
+    ap.add_argument("--radius-km", type=float, default=175)
+    ap.add_argument("--region", default="Switzerland")
     ap.add_argument("--cache", default="", help="elevation cache (JSON lines), reused between builds")
     ap.add_argument("--osm-cache", default="", help="save/reuse the roads read from the extract (faster reruns)")
     a = ap.parse_args()
@@ -326,15 +326,14 @@ def main():
            "sources": {"roads": "© OpenStreetMap contributors (ODbL)", "elevation": "© swisstopo (DTM 2 m)"},
            "climbs": out}
     roads = road_graph(osm["ways"], out)
-    places_out = a.out.replace(".json.gz", "-places.json.gz")
+    places_out = a.out.replace(".jsonl.gz", "-places.json.gz")
     with gzip.open(places_out, "wt", encoding="utf-8") as f:
         json.dump(start_places(osm["places"]), f, ensure_ascii=False, separators=(",", ":"))
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
-    with gzip.open(a.out, "wt", encoding="utf-8") as f:
-        json.dump(doc, f, ensure_ascii=False, separators=(",", ":"))
-    roads_out = a.out.replace(".json.gz", "-roads.json.gz")
-    with gzip.open(roads_out, "wt", encoding="utf-8") as f:
-        json.dump(roads, f, separators=(",", ":"))
+    write_climbs(a.out, {k: v for k, v in doc.items() if k != "climbs"}, out)
+    roads_out = a.out.replace(".jsonl.gz", "-roads.bin.gz")
+    with gzip.open(roads_out, "wb") as f:
+        f.write(pack_road_graph(roads["nodes"], roads["edges"]))
     print(f"Road graph: {len(roads['nodes'])} junctions, {len(roads['edges'])} roads -> {roads_out} "
           f"({os.path.getsize(roads_out) / 1e6:.1f} MB)")
     print(f"Wrote {len(out)} climbs to {a.out} ({os.path.getsize(a.out) / 1e6:.1f} MB, {time.time() - t0:.0f} s)")
