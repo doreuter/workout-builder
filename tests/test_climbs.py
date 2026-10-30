@@ -182,6 +182,13 @@ def test_tempo_efforts_are_the_main_set():
     assert ph["Cool down"]["what"] == "10 min easy"
 
 
+def test_doing_outside_needs_no_start_place():
+    out = climbs.doing_outside(TEMPO_WITH_OPENERS, 360, 75)
+    assert any("at least 8 min" in l for l in out["howto"]) and out["assumed"]["ftp"] is False
+    easy = {"name": "Z2", "sport": "cycling", "steps": [{"type": "steady", "duration_s": 5400, "intensity": 0.65}]}
+    assert climbs.doing_outside(easy, 250, None)["message"]
+
+
 @needs_data
 def test_outside_plan_uses_the_tempo_efforts():
     r = climbs.recommend(TEMPO_WITH_OPENERS, 47.0504, 8.5466, 360, 75)

@@ -467,6 +467,8 @@ def _workout_view(user, row) -> dict:
         "source_filename": row["source_filename"],
         "planned_date": row["planned_date"],
         "howto": howto.describe(workout, user["ftp"], pace) if workout else None,
+        "outside": (climbs.doing_outside(workout, user["ftp"], user["weight_kg"], pace)
+                    if workout and workout["sport"] == "cycling" else None),
     }
 
 

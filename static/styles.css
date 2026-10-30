@@ -518,6 +518,7 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 
 /* Ride it outside: how-to, the climbs as a list, and a pop-up per climb. */
 .climb-block { margin-top: .8rem; }
+.climb-block.first { margin-top: .2rem; }
 .climb-block h4 { margin: 0 0 .35rem; font-size: .9rem; }
 .climb-plan { margin: 0; padding-left: 1.1rem; display: grid; gap: .3rem; font-size: .88rem; }
 .climb-plan li.step { list-style: none; margin-left: -.2rem; }

@@ -572,6 +572,8 @@ def test_climb_suggestions_endpoint(client):
     main_set = next(p for p in view["howto"]["phases"] if p["name"] == "Main set")
     assert main_set["what"] == "4 × 8 min at 242 W (97 % FTP), 3 min easy between"
     assert view["howto"]["goal"]["label"] == "Threshold"
+    assert any("at least 8 min" in l for l in view["outside"]["howto"])  # before any start place
+    assert view["outside"]["assumed"]["weight_kg"] == 68
     assert client.post(f"/api/workouts/{wid}/climbs", json={"lat": 999, "lon": 8.5}).status_code == 422
     if climbs.available():
         r = client.post(f"/api/workouts/{wid}/climbs", json={"lat": 47.0504, "lon": 8.5466}).json()

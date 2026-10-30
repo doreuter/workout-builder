@@ -230,17 +230,20 @@
             <p id="send-status" class="success small" hidden></p>
           </details>
           <details class="route-suggest fold" id="route-suggest" data-fold="outside" hidden>
-            <summary>Ride it outside <span class="muted small">Climbs near you</span></summary>
-            <div class="route-controls">
-              <input id="route-start" class="route-start" list="place-list" placeholder="Where do you start? e.g. Goldau" autocomplete="off">
-              <datalist id="place-list"></datalist>
-              <button type="button" class="icon-btn" id="route-locate" title="Use my location" aria-label="Use my location">📍</button>
-              <button type="button" class="primary" id="route-go">Find climbs</button>
-            </div>
-            <p id="climb-note" class="muted small" hidden></p>
-            <div id="climb-howto" class="climb-block" hidden>
+            <summary>Ride it outside <span class="muted small">How, and climbs near you</span></summary>
+            <div id="climb-howto" class="climb-block first" hidden>
               <h4>Doing it outside</h4>
               <ul class="climb-plan" id="howto-list"></ul>
+            </div>
+            <p id="climb-note" class="muted small" hidden></p>
+            <div class="climb-block" id="climb-finder">
+              <h4>Find climbs near you</h4>
+              <div class="route-controls">
+                <input id="route-start" class="route-start" type="search" list="place-list" placeholder="Where do you start? e.g. Goldau" autocomplete="off">
+                <datalist id="place-list"></datalist>
+                <button type="button" class="icon-btn" id="route-locate" title="Use my location" aria-label="Use my location">📍</button>
+                <button type="button" class="primary" id="route-go">Find climbs</button>
+              </div>
             </div>
             <div id="climb-near" class="climb-block" hidden>
               <h4 id="climb-near-title">Climbs nearby</h4>

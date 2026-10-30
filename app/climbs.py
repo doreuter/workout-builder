@@ -259,25 +259,40 @@ def plan(climb: dict, warm_s: int, efs: list, ftp: float, mass: float) -> dict |
 
 # --- recommending -----------------------------------------------------------------------------
 
-def recommend(workout: dict, lat: float, lon: float, ftp: int | None, weight: int | None,
-              pace: int | None = None, limit: int = 4) -> dict:
-    """The best climbs near (lat, lon) for this workout's efforts, each with a plan in plain words."""
-    warm_s, efs = efforts(workout, pace)
+NO_EFFORTS = "This workout has no hard efforts. Climb suggestions are for interval sessions."
+
+
+def doing_outside(workout: dict, ftp: int | None, weight: int | None, pace: int | None = None) -> dict:
+    """Riding this workout outside, before picking a start place: {"howto": [...], "assumed": {...}},
+    or {"message"} when it has no efforts to put on a climb. Shown on every ride."""
+    shape = structure(workout, pace)
+    efs = shape["efforts"]
     if not efs:
-        return {"climbs": [], "message": "This workout has no hard efforts. Climb suggestions are for interval sessions."}
+        return {"howto": [], "message": NO_EFFORTS}
     kg = weight or DEFAULT_KG
     watts = ftp or round(DEFAULT_WKG * kg)
-    mass = kg + BIKE_KG
-    longest = max(efs, key=lambda e: e[0])
-    target = target_grade(longest[1])
-    shape = structure(workout, pace)
-    howto = outside_tips(warm_s, efs, bool(shape["openers"]), watts, mass)
+    howto = outside_tips(shape["warm_s"], efs, bool(shape["openers"]), watts, kg + BIKE_KG)
     steady = [(d, i) for kind, d, i in shape["after"] if kind == "steady"]
     if steady:
         d, i = max(steady)
         howto[-1] = (f"On the way home ride the steady {_minutes(d)} at about {round(i * watts)} W on "
                      "flat or rolling roads, then cool down easy.")
-    assumed = {"weight": weight is None, "ftp": ftp is None, "ftp_w": watts, "weight_kg": kg}
+    return {"howto": howto, "assumed": {"weight": weight is None, "ftp": ftp is None, "ftp_w": watts, "weight_kg": kg}}
+
+
+def recommend(workout: dict, lat: float, lon: float, ftp: int | None, weight: int | None,
+              pace: int | None = None, limit: int = 4) -> dict:
+    """The best climbs near (lat, lon) for this workout's efforts, each with a plan in plain words."""
+    warm_s, efs = efforts(workout, pace)
+    if not efs:
+        return {"climbs": [], "message": NO_EFFORTS}
+    kg = weight or DEFAULT_KG
+    watts = ftp or round(DEFAULT_WKG * kg)
+    mass = kg + BIKE_KG
+    longest = max(efs, key=lambda e: e[0])
+    target = target_grade(longest[1])
+    outside = doing_outside(workout, ftp, weight, pace)
+    howto, assumed = outside["howto"], outside["assumed"]
 
     by_road = road_km(lat, lon)
     near = []

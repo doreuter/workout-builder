@@ -1394,7 +1394,17 @@ function renderRoutePanel(workout) {
   const panel = $("#route-suggest");
   panel.hidden = !(state.climbsAvailable && workout.sport === "cycling");
   if (panel.hidden) return;
-  for (const id of ["#climb-note", "#climb-howto", "#climb-near", "#route-error"]) $(id).hidden = true;
+  for (const id of ["#climb-near", "#route-error"]) $(id).hidden = true;
+  // "Doing it outside" needs no start place, so it's there as soon as you open the panel.
+  const out = state.view.outside || {};
+  const a = out.assumed || {};
+  const guess = [a.ftp ? `an FTP of ${a.ftp_w} W` : null, a.weight ? `${a.weight_kg} kg` : null].filter(Boolean);
+  const note = out.message || (guess.length ? `Assuming ${guess.join(" and ")}; set yours in Settings for better numbers.` : "");
+  $("#climb-note").textContent = note;
+  $("#climb-note").hidden = !note;
+  $("#howto-list").replaceChildren(...(out.howto || []).map((line) => el("li", {}, line)));
+  $("#climb-howto").hidden = !(out.howto || []).length;
+  $("#climb-finder").hidden = !!out.message;
   const saved = savedStart();
   if (saved && !$("#route-start").value) {
     $("#route-start").value = saved.label;
@@ -1410,6 +1420,10 @@ function rememberStart(place) {
   state.startPlace = place;
   try { localStorage.setItem("vibegrind.start", JSON.stringify(place)); } catch {}
 }
+
+// The box keeps your last start place; clicking it selects the text, so typing replaces it
+// instead of adding to "My location".
+$("#route-start").addEventListener("focus", (e) => e.target.select());
 
 let placeTimer = null;
 state.placeHits = {};
@@ -1439,7 +1453,7 @@ $("#route-locate").addEventListener("click", () => {
 });
 
 function showRouteError(msg) {
-  for (const id of ["#climb-note", "#climb-howto", "#climb-near"]) $(id).hidden = true;
+  $("#climb-near").hidden = true;
   const e = $("#route-error");
   e.textContent = msg;
   e.hidden = false;
@@ -1473,13 +1487,6 @@ $("#route-go").addEventListener("click", async () => {
 });
 
 function renderClimbs(r, start) {
-  const a = r.assumed || {};
-  const guess = [a.ftp ? `an FTP of ${a.ftp_w} W` : null, a.weight ? `${a.weight_kg} kg` : null].filter(Boolean);
-  const note = r.message || (guess.length ? `Assuming ${guess.join(" and ")}; set yours in Settings for better numbers.` : "");
-  $("#climb-note").textContent = note;
-  $("#climb-note").hidden = !note;
-  $("#howto-list").replaceChildren(...(r.howto || []).map((line) => el("li", {}, line)));
-  $("#climb-howto").hidden = !(r.howto || []).length;
   const found = r.climbs || [];
   $("#climb-near-title").textContent = start.label === "My location" ? "Climbs near you" : `Climbs near ${start.label}`;
   $("#climb-list").replaceChildren(...found.map((c) => {
