@@ -179,6 +179,10 @@
           <div class="workout-head">
             <div>
               <h2 id="w-name"></h2>
+              <div class="w-goal" id="w-goal" hidden>
+                <span class="goal-tag" id="w-goal-label"></span>
+                <p id="w-goal-text" class="small"></p>
+              </div>
               <p id="w-desc" class="muted small"></p>
               <p id="w-source" class="source small" hidden></p>
             </div>
@@ -196,30 +200,37 @@
           <div class="legend" id="legend"></div>
           <section class="howto" id="w-howto" hidden>
             <h4 id="w-howto-title">How to ride it</h4>
-            <ul class="climb-plan" id="w-howto-list"></ul>
+            <div class="phases" id="w-phases"></div>
+            <details class="steps">
+              <summary>Show every step</summary>
+              <ol id="step-list"></ol>
+            </details>
           </section>
-          <div class="exports">
-            <div class="export-row" id="send-zwift-row" hidden>
-              <button class="primary" id="send-zwift">Send to Zwift</button>
-              <span class="export-note" id="send-zwift-note"></span>
-            </div>
-            <div class="export-row">
-              <a class="btn" id="export-zwo">Download for Zwift (.zwo)</a>
-              <span class="export-note">Drop in your Zwift workouts folder, restart Zwift</span>
-            </div>
-            <div class="export-row">
-              <a class="btn" id="export-fit">Download for Garmin (.fit)</a>
-              <span class="export-note">Copy to GARMIN/NewFiles over USB</span>
-            </div>
-          </div>
           <div class="plan-date">
             <label>On the calendar <input type="date" id="w-plan-date"></label>
             <button type="button" class="link small" id="w-plan-clear" hidden>Take off the calendar</button>
           </div>
-          <p id="export-error" class="error small" hidden></p>
-          <p id="send-status" class="success small" hidden></p>
-          <details class="route-suggest" id="route-suggest" hidden>
-            <summary>Ride it outside</summary>
+          <details class="fold" id="device-fold" data-fold="device">
+            <summary>Get it on your device <span class="muted small" id="device-sub">Zwift · Garmin</span></summary>
+            <div class="exports">
+              <div class="export-row" id="send-zwift-row" hidden>
+                <button class="primary" id="send-zwift">Send to Zwift</button>
+                <span class="export-note" id="send-zwift-note"></span>
+              </div>
+              <div class="export-row">
+                <a class="btn" id="export-zwo">Download for Zwift (.zwo)</a>
+                <span class="export-note">Drop in your Zwift workouts folder, restart Zwift</span>
+              </div>
+              <div class="export-row">
+                <a class="btn" id="export-fit">Download for Garmin (.fit)</a>
+                <span class="export-note">Copy to GARMIN/NewFiles over USB</span>
+              </div>
+            </div>
+            <p id="export-error" class="error small" hidden></p>
+            <p id="send-status" class="success small" hidden></p>
+          </details>
+          <details class="route-suggest fold" id="route-suggest" data-fold="outside" hidden>
+            <summary>Ride it outside <span class="muted small">Climbs near you</span></summary>
             <div class="route-controls">
               <input id="route-start" class="route-start" list="place-list" placeholder="Where do you start? e.g. Goldau" autocomplete="off">
               <datalist id="place-list"></datalist>
@@ -237,10 +248,6 @@
             </div>
             <p id="route-error" class="error small" hidden></p>
             <p class="muted tiny route-foot">Distances are rough, by road. Check a climb is open, legal and safe for you before you go. Climbs © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors, elevation © swisstopo, map © <a href="https://www.thunderforest.com/" target="_blank" rel="noopener">Thunderforest</a>.</p>
-          </details>
-          <details class="steps">
-            <summary>Steps</summary>
-            <ol id="step-list"></ol>
           </details>
         </div>
       </section>

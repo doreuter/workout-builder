@@ -110,47 +110,64 @@ def feel(sport: str, intensity: float) -> str:
     return "All out for its length, with full recovery between."
 
 
-def goal(sport: str, intensity: float | None) -> str:
-    """What the workout is for: the training effect of its main efforts (None: a steady session at
-    `intensity` given as its average)."""
-    limit = "threshold pace" if sport == "running" else "FTP"
-    if intensity is None:
-        return "Goal: aerobic base."
-    if intensity < 0.76:
-        return ("Goal: aerobic endurance. Easy time builds the engine (heart, capillaries, fat burning) "
-                "with little fatigue, so you should finish feeling you could do more.")
+def goal(sport: str, intensity: float, steady: bool = False) -> dict:
+    """What the workout is for: {"label", "text"}. The text says it plainly first, then the physiology
+    (zone, threshold, adaptation) for those who know it. `intensity` is the main efforts' (or, for a
+    steady session, the average)."""
+    run = sport == "running"
+    of = "of threshold pace" if run else "FTP"
+    if steady and intensity < (0.7 if run else 0.56):
+        return {"label": "Recovery", "text": (
+            "Easy movement that helps you recover faster than resting: blood flow without new training "
+            f"stress. Zone 1, well below your first lactate threshold (under {'70 %' if run else '55 %'} {of}).")}
+    if intensity < WORK_FROM[sport]:
+        return {"label": "Aerobic endurance", "text": (
+            "Builds your base so you can go longer before tiring, with little fatigue. Zone 2, below your "
+            "first lactate threshold (LT1): more mitochondria and capillaries in the working muscles and "
+            "better fat oxidation, which spares glycogen.")}
     if intensity < 0.88:
-        return ("Goal: muscular endurance. Long tempo efforts teach you to hold a strong, steady effort for "
-                "longer — the pace of long climbs and hard group rides — at a fraction of the cost of threshold work.")
+        where = "long climbs and the steady middle of a race" if run else "long climbs and hard group rides"
+        return {"label": "Muscular endurance", "text": (
+            f"Teaches you to hold a strong, steady effort for longer, like {where}. Tempo (zone 3, "
+            f"{round(WORK_FROM[sport] * 100)}–87 % {of}) sits between your two lactate thresholds: it improves fatigue resistance and "
+            "lactate clearance at a moderate cost in recovery.")}
     if intensity < 0.95:
-        return (f"Goal: raise your {limit}. Long efforts just under threshold add a lot of training for "
-                "manageable fatigue.")
+        return {"label": "Sweet spot", "text": (
+            f"Raises your {'threshold pace' if run else 'FTP'} efficiently. Long efforts at 88–94 % {of}, "
+            "just below your lactate threshold (LT2), give a large aerobic stimulus for fatigue you can "
+            "recover from in a day or two.")}
     if intensity < 1.06:
-        return (f"Goal: raise your {limit} and how long you can hold it. Expect it to be tough; the last "
-                "effort shows how well you paced the first.")
+        return {"label": "Threshold", "text": (
+            "Raises the effort you can hold for about an hour, and how long you can hold it. Efforts at "
+            f"95–105 % {of}, around your maximal lactate steady state (MLSS), where lactate production "
+            "and clearance just balance.")}
     if intensity < 1.25:
-        return ("Goal: raise your VO2max, the ceiling of your aerobic engine. Short, very hard efforts make "
-                "threshold feel easier over the following weeks.")
-    return ("Goal: anaerobic power and speed: short, maximal efforts for attacks, sprints and steep kicks.")
+        return {"label": "VO2max", "text": (
+            "Raises the ceiling of your aerobic engine, so threshold efforts feel easier over the coming "
+            f"weeks. Efforts at 106–120 % {of} drive heart rate and oxygen uptake close to their maximum "
+            "(VO2max), training stroke volume and oxygen delivery.")}
+    what = "surges, sprints and steep kicks" if run else "attacks, sprints and steep kicks"
+    return {"label": "Anaerobic power", "text": (
+        f"Sharpens your punch for {what}. Short, near-maximal efforts above 120 % {of} train anaerobic "
+        "capacity (the glycolytic system) and neuromuscular power; full recoveries keep the quality high.")}
 
 
-def describe(workout: dict, ftp: int | None, pace: int | None) -> list:
-    """Plain-language lines for doing this workout, anywhere."""
+def describe(workout: dict, ftp: int | None, pace: int | None) -> dict:
+    """How to do this workout, anywhere: {"goal": {"label", "text"}, "phases": [{"name", "what",
+    "note"}]}, phases in order (warm up, main set, after, cool down)."""
     sport = workout["sport"]
-    move = "run" if sport == "running" else "ride"
     shape = structure(workout, pace)
     efs = shape["efforts"]
     if not efs:
         avg = shape.get("avg") or 0
-        recovery = sport == "cycling" and avg < 0.56 or sport == "running" and avg < 0.7
-        return [("Goal: recovery. Spin the legs and get blood flowing; finish fresher than you started."
-                 if recovery else goal(sport, avg)),
-                f"One steady {move} of {minutes(shape['total_s'])} at about {target(sport, avg, ftp, pace)}.",
-                feel(sport, avg) + " Keep it relaxed the whole way: this is about time, not effort."]
+        return {"goal": goal(sport, avg, steady=True), "phases": [{
+            "name": "Run" if sport == "running" else "Ride",
+            "what": f"{minutes(shape['total_s'])} steady at about {target(sport, avg, ftp, pace)}",
+            "note": feel(sport, avg) + " Keep it relaxed the whole way: this is about time, not effort."}]}
     main_i = max(efs, key=lambda e: e[0])[1]
-    lines = [goal(sport, main_i)]
+    phases = []
     if shape["warm_s"]:
-        line = f"Warm up {minutes(shape['warm_s'])}, starting easy and building gradually"
+        note = None
         if shape["openers"]:
             ops = shape["openers"]
             n, d = len(ops), ops[0][0]
@@ -158,8 +175,9 @@ def describe(workout: dict, ftp: int | None, pace: int | None) -> list:
             at = (f"at about {target(sport, lo, ftp, pace)}" if hi - lo < 0.005 else
                   f"building from {target(sport, lo, ftp, pace)} to {target(sport, hi, ftp, pace)}")
             size = f"{n} × {minutes(d)}" if all(abs(o[0] - d) < 1 for o in ops) else str(n)
-            line += f", with {size} openers {at} near the end: they wake the legs up for the main set"
-        lines.append(line + ".")
+            note = f"{size} openers near the end, {at}: they wake the legs up for the main set."
+        phases.append({"name": "Warm up", "what": f"{minutes(shape['warm_s'])} easy, building gradually",
+                       "note": note})
     groups: list = []  # (count, length as said, intensity)
     for (d, i, _), m in zip(efs, shape["effort_m"]):
         size = f"{m:,.0f} m".replace(",", "'") if m else minutes(d)
@@ -169,20 +187,18 @@ def describe(workout: dict, ftp: int | None, pace: int | None) -> list:
             groups.append((1, size, i))
     work = "; ".join((f"{n} × " if n > 1 else "") + f"{size} at {target(sport, i, ftp, pace)}" for n, size, i in groups)
     recs = sorted({r for _, _, r in efs[:-1]})
-    rest = ""
+    note = feel(sport, main_i)
     if recs:
         rest = minutes(recs[0]) if len(recs) == 1 else f"{minutes(recs[0])}–{minutes(recs[-1])}"
-        rest = f", with {rest} easy between"
-    lines.append(f"Main set: {work}{rest}.")
-    lines.append(feel(sport, main_i))
-    if recs:
-        lines.append("Between efforts " + ("jog or walk" if sport == "running" else "spin") +
-                     " really easy, so the next one starts fresh.")
+        work += f", {rest} easy between"
+        note += " Between efforts " + ("jog or walk" if sport == "running" else "spin") + " really easy."
+    phases.append({"name": "Main set", "what": work, "note": note})
     if shape["after"]:
         parts = [f"{minutes(d)} easy" if kind == "easy" else f"{minutes(d)} steady at {target(sport, i, ftp, pace)}"
                  for kind, d, i in shape["after"]]
-        lines.append("After the main set: " + ", then ".join(parts) + ". Keep it relaxed: this adds "
-                     "endurance on top of the work.")
+        steady = any(kind == "steady" for kind, _, _ in shape["after"])
+        phases.append({"name": "After", "what": ", then ".join(parts),
+                       "note": "Relaxed: this adds endurance on top of the work." if steady else None})
     if shape["cool_s"]:
-        lines.append(f"Cool down {minutes(shape['cool_s'])} easy.")
-    return lines
+        phases.append({"name": "Cool down", "what": f"{minutes(shape['cool_s'])} easy", "note": None})
+    return {"goal": goal(sport, main_i), "phases": phases}

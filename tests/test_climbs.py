@@ -127,20 +127,32 @@ def test_openers_belong_to_the_warm_up_not_the_main_set():
     assert len(howto.structure(sprints)["efforts"]) == 10  # short efforts *are* the main set here
 
 
+def _phases(how):
+    return {p["name"]: p for p in how["phases"]}
+
+
 def test_how_to_describes_the_whole_workout():
-    lines = howto.describe(VO2_WITH_OPENERS, ftp=250, pace=None)
-    assert lines[0].startswith("Goal: raise your VO2max")
-    assert lines[1].startswith("Warm up 18½ min") and "3 × 30 s openers at about 300 W" in lines[1]
-    assert "Main set: 5 × 3 min at 288 W (115 % FTP), with 3 min easy between." in lines
-    assert any(l.startswith("Cool down 13 min") for l in lines)
+    how = howto.describe(VO2_WITH_OPENERS, ftp=250, pace=None)
+    assert how["goal"]["label"] == "VO2max" and "VO2max" in how["goal"]["text"]
+    assert [p["name"] for p in how["phases"]] == ["Warm up", "Main set", "Cool down"]
+    ph = _phases(how)
+    assert ph["Warm up"]["what"].startswith("18½ min") and "3 × 30 s openers" in ph["Warm up"]["note"]
+    assert "at about 300 W" in ph["Warm up"]["note"]
+    assert ph["Main set"]["what"] == "5 × 3 min at 288 W (115 % FTP), 3 min easy between"
+    assert ph["Cool down"]["what"] == "13 min easy"
     run = {"name": "6x800", "sport": "running", "steps": [
         {"type": "warmup", "duration_s": 900, "intensity": 0.7, "intensity_end": 0.85},
         {"type": "repeat", "count": 6, "steps": [{"type": "steady", "distance_m": 800, "intensity": 1.05},
                                                  {"type": "rest", "duration_s": 120, "intensity": 0.6}]}]}
-    assert any("6 × 800 m at 4:17 /km" in l for l in howto.describe(run, ftp=None, pace=270))
+    r = howto.describe(run, ftp=None, pace=270)
+    assert _phases(r)["Main set"]["what"].startswith("6 × 800 m at 4:17 /km")
+    assert "threshold pace" in r["goal"]["text"] and "FTP" not in r["goal"]["text"]
     easy = {"name": "Z2", "sport": "cycling", "steps": [{"type": "steady", "duration_s": 5400, "intensity": 0.65}]}
-    assert howto.describe(easy, 250, None)[0].startswith("Goal: aerobic endurance")
-    assert howto.describe(easy, 250, None)[1] == "One steady ride of 90 min at about 162 W (65 % FTP)."
+    e = howto.describe(easy, 250, None)
+    assert e["goal"]["label"] == "Aerobic endurance" and "LT1" in e["goal"]["text"]
+    assert e["phases"][0]["what"] == "90 min steady at about 162 W (65 % FTP)"
+    spin = {"name": "Spin", "sport": "cycling", "steps": [{"type": "steady", "duration_s": 2400, "intensity": 0.5}]}
+    assert howto.describe(spin, 250, None)["goal"]["label"] == "Recovery"
 
 
 TEMPO_WITH_OPENERS = {"name": "3x8 tempo", "sport": "cycling", "steps": [
@@ -159,13 +171,15 @@ def test_tempo_efforts_are_the_main_set():
     assert [round(i, 2) for _, i in shape["openers"]] == [0.8, 0.9, 1.0]
     assert [(d, round(i, 2)) for d, i, _ in shape["efforts"]] == [(480, 0.85)] * 3
     assert shape["after"] == [("easy", 240, 0.5), ("steady", 900, 0.65)] and shape["cool_s"] == 600
-    lines = howto.describe(TEMPO_WITH_OPENERS, ftp=360, pace=None)
-    assert lines[0].startswith("Goal: muscular endurance")
-    assert "building from 288 W (80 % FTP) to 360 W (100 % FTP)" in lines[1]
-    assert "Main set: 3 × 8 min at 306 W (85 % FTP), with 4 min easy between." in lines
-    assert any(l.startswith("Tempo:") for l in lines)
-    assert any("then 15 min steady at 234 W (65 % FTP)" in l for l in lines)
-    assert lines[-1] == "Cool down 10 min easy."
+    how = howto.describe(TEMPO_WITH_OPENERS, ftp=360, pace=None)
+    assert how["goal"]["label"] == "Muscular endurance" and "lactate" in how["goal"]["text"]
+    assert [p["name"] for p in how["phases"]] == ["Warm up", "Main set", "After", "Cool down"]
+    ph = _phases(how)
+    assert "building from 288 W (80 % FTP) to 360 W (100 % FTP)" in ph["Warm up"]["note"]
+    assert ph["Main set"]["what"] == "3 × 8 min at 306 W (85 % FTP), 4 min easy between"
+    assert ph["Main set"]["note"].startswith("Tempo:")
+    assert ph["After"]["what"] == "4 min easy, then 15 min steady at 234 W (65 % FTP)"
+    assert ph["Cool down"]["what"] == "10 min easy"
 
 
 @needs_data

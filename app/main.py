@@ -466,7 +466,7 @@ def _workout_view(user, row) -> dict:
         "transcript": llm.visible_transcript(history),
         "source_filename": row["source_filename"],
         "planned_date": row["planned_date"],
-        "howto": howto.describe(workout, user["ftp"], pace) if workout else [],
+        "howto": howto.describe(workout, user["ftp"], pace) if workout else None,
     }
 
 

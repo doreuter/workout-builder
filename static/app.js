@@ -477,10 +477,7 @@ function renderWorkout() {
 
   renderChart(workout.sport, segments, stats.duration_s);
   renderLegend(workout.sport, segments);
-  const howto = state.view.howto || [];
-  $("#w-howto-title").textContent = workout.sport === "running" ? "How to run it" : "How to ride it";
-  $("#w-howto-list").replaceChildren(...howto.map((line) => el("li", {}, line)));
-  $("#w-howto").hidden = !howto.length;
+  renderHowto(workout, state.view.howto);
   renderRoutePanel(workout);
   renderSteps(workout);
 
@@ -581,6 +578,40 @@ function stepText(sport, s) {
   const cad = s.cadence ? ` · ${s.cadence} ${sport === "running" ? "spm" : "rpm"}` : "";
   return `${name}: ${len} @ ${targetRange(sport, s.intensity, s.intensity_end)}${cad}${messagesText(s)}`;
 }
+
+// The goal sits under the name; "How to ride it" has one row per phase (warm up, main set, after,
+// cool down), with the full step list folded away below.
+function renderHowto(workout, howto) {
+  const goal = howto && howto.goal;
+  $("#w-goal").hidden = !goal;
+  if (goal) {
+    $("#w-goal-label").textContent = goal.label;
+    $("#w-goal-text").textContent = goal.text;
+  }
+  const phases = (howto && howto.phases) || [];
+  $("#w-howto-title").textContent = workout.sport === "running" ? "How to run it" : "How to ride it";
+  $("#w-phases").replaceChildren(...phases.map((p) => {
+    const body = el("div");
+    body.append(el("span", { class: "phase-what" }, p.what));
+    if (p.note) body.append(el("p", { class: "phase-note" }, p.note));
+    const row = el("div", { class: "phase" });
+    row.append(el("span", { class: "phase-name" }, p.name), body);
+    return row;
+  }));
+  $("#w-howto").hidden = !phases.length;
+}
+
+// Folded sections ("Get it on your device", "Ride it outside") stay the way you last left them.
+function initFolds() {
+  for (const d of document.querySelectorAll("details[data-fold]")) {
+    const key = `fold:${d.dataset.fold}`;
+    try { d.open = localStorage.getItem(key) === "open"; } catch { /* storage blocked: start folded */ }
+    d.addEventListener("toggle", () => {
+      try { localStorage.setItem(key, d.open ? "open" : "closed"); } catch { /* ignore */ }
+    });
+  }
+}
+initFolds();
 
 function renderSteps(workout) {
   const ol = $("#step-list");

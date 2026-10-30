@@ -482,7 +482,7 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 
 
 /* Outdoor route suggestion panel (workout view). */
-.route-suggest { margin: 0 0 1rem; }
+.route-suggest { margin-bottom: 1rem; }
 .route-suggest > summary { cursor: pointer; font-weight: 600; }
 .route-controls { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; margin: .6rem 0; }
 .route-field { display: grid; gap: .2rem; font-size: .8rem; color: var(--muted); }
@@ -541,3 +541,21 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 .howto { margin: .9rem 0 .2rem; padding: .7rem .9rem; border-left: 3px solid var(--accent);
   background: var(--surface-2, rgba(127,127,127,.08)); border-radius: 0 8px 8px 0; }
 .howto h4 { margin: 0 0 .35rem; font-size: .9rem; }
+.phases { display: grid; }
+.phase { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: .6rem; padding: .5rem 0;
+  border-top: 1px solid var(--border); font-size: .9rem; }
+.phase:first-child { border-top: 0; }
+.phase-name { font-weight: 600; }
+.phase-note { margin: .15rem 0 0; color: var(--muted); font-size: .84rem; }
+.howto .steps { margin-top: .4rem; }
+.howto .steps summary { font-size: .85rem; }
+.w-goal { margin: .35rem 0 .4rem; }
+.goal-tag { display: inline-block; padding: .15rem .6rem; border-radius: 999px; font-size: .78rem; font-weight: 600;
+  color: var(--accent); background: rgba(255, 106, 61, .14); }
+#w-goal-text { margin: .4rem 0 0; line-height: 1.45; }
+.fold { margin-top: .6rem; border: 1px solid var(--border); border-radius: 8px; padding: .65rem .85rem; }
+.fold > summary { cursor: pointer; font-weight: 600; }
+.fold > summary .muted { font-weight: 400; margin-left: .35rem; }
+.fold[open] > summary { margin-bottom: .4rem; }
+.fold .exports { margin-top: .4rem; }
+@media (max-width: 520px) { .phase { grid-template-columns: 1fr; gap: .1rem; } }
