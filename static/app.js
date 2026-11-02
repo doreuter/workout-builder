@@ -1432,7 +1432,7 @@ $("#route-start").addEventListener("input", () => {
   if (state.placeHits[text]) return rememberStart(state.placeHits[text]);  // picked from the list
   clearTimeout(placeTimer);
   placeTimer = setTimeout(async () => {
-    const hits = await api(`/api/places?q=${encodeURIComponent(text)}`).catch(() => []);
+    const hits = await api("/api/places", { method: "POST", body: { q: text } }).catch(() => []);
     state.placeHits = Object.fromEntries(hits.map((h) => [h.label, { label: h.label, lat: h.lat, lon: h.lon }]));
     $("#place-list").replaceChildren(...hits.map((h) => el("option", { value: h.label })));
   }, 200);

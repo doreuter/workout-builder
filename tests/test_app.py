@@ -579,7 +579,7 @@ def test_climb_suggestions_endpoint(client):
         r = client.post(f"/api/workouts/{wid}/climbs", json={"lat": 47.0504, "lon": 8.5466}).json()
         assert len(r["climbs"]) == 4 and r["assumed"] == {"weight": False, "ftp": False, "ftp_w": 250, "weight_kg": 68}
         assert r["howto"]
-        assert client.get("/api/places?q=Goldau").json()[0]["name"] == "Goldau"
+        assert client.post("/api/places", json={"q": "Goldau"}).json()[0]["name"] == "Goldau"
         assert all(c["plan"] for c in r["climbs"])
     uid = main.db.get_user_by_email("climber@example.com")["id"]
     rwid = client.post("/api/workouts").json()["id"]

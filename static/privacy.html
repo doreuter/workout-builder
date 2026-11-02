@@ -16,9 +16,9 @@
 
   <main class="wrap legal">
     <h1>Privacy policy</h1>
-    <p class="updated">Last updated: 27 October 2026</p>
+    <p class="updated">Last updated: 2 November 2026</p>
 
-    <p>This policy explains what personal data VibeGrind processes when you use the website and app at https://vibegrind.app, why, and what rights you have. VibeGrind turns plain-language descriptions into structured cycling workouts and, if you connect Garmin, estimates your daily readiness to train.</p>
+    <p>This policy explains what personal data VibeGrind processes when you use the website and app at https://vibegrind.app, why, and what rights you have. VibeGrind turns plain-language descriptions into structured cycling and running workouts, suggests climbs in Switzerland to ride them on and, if you connect Garmin, estimates your daily readiness to train.</p>
     <p>VibeGrind is operated from Switzerland, so the Swiss Federal Act on Data Protection (FADP) applies. Where we process data of people in the European Union or the European Economic Area, the EU General Data Protection Regulation (GDPR) applies as well.</p>
 
     <h2>1. Who is responsible</h2>
@@ -45,8 +45,8 @@
           <td>Art. 6(1)(b) (contract)</td>
         </tr>
         <tr>
-          <td><strong>Training settings:</strong> FTP, running threshold pace, threshold heart rates, maximum heart rate, your own training rules</td>
-          <td>Showing watts and tailoring workouts</td>
+          <td><strong>Training settings:</strong> FTP, running threshold pace, threshold heart rates, maximum heart rate, body weight, your own training rules</td>
+          <td>Showing watts and paces, tailoring workouts, estimating climbing times</td>
           <td>Art. 6(1)(b)</td>
         </tr>
         <tr>
@@ -55,12 +55,12 @@
           <td>Art. 6(1)(b)</td>
         </tr>
         <tr>
-          <td><strong>Garmin data</strong>, only if you connect Garmin: overnight heart-rate variability (HRV), resting heart rate, sleep duration, stages and score, Body Battery, stress, and activity summaries (type, date, duration, power, heart rate, training load, training effect, recovery time)</td>
+          <td><strong>Garmin data</strong>, only if you connect Garmin (during the beta this is possible only for the operator's own account): overnight heart-rate variability (HRV), resting heart rate, sleep duration, stages and score, Body Battery, stress, and activity summaries (type, date, duration, power, heart rate, training load, training effect, recovery time)</td>
           <td>Your readiness dashboard and workout suggestions that fit your readiness</td>
           <td>Your explicit consent, Art. 9(2)(a) and Art. 6(1)(a)</td>
         </tr>
         <tr>
-          <td><strong>Start point for climb suggestions</strong>, only when you ask for them: the coordinates you choose. Used on our server to find climbs near you; not stored and not passed on.</td>
+          <td><strong>Start point for climb suggestions</strong>, only when you ask for them: the place name you type, or your device location if you press the location button and allow it in your browser. Used on our server to find places and climbs near you; not stored on our server and not passed on. Your browser remembers your last start place (see section 6).</td>
           <td>Suggesting climbs that fit your workout</td>
           <td>Art. 6(1)(b)</td>
         </tr>
@@ -81,6 +81,7 @@
 
     <h2>3. AI processing</h2>
     <p>When you send a chat message, the message, the current workout, your training settings and, if you've connected Garmin, a short summary of your readiness and recent activities are sent to Anthropic's Claude API to create or change the workout. Anthropic processes this data on our behalf. Under Anthropic's commercial terms, data sent through its API isn't used to train its models. Please don't put information in the chat that isn't needed for your training.</p>
+    <p>The climb database and climb suggestions don't use AI: they're worked out on our server from OpenStreetMap and swisstopo data. If you follow a link to get directions in Google Maps, Google processes that under its own privacy policy.</p>
 
     <h2>4. Service providers and transfers abroad</h2>
     <p>We use these providers, each bound by a data processing agreement where they act on our behalf:</p>
@@ -89,21 +90,25 @@
       <tbody>
         <tr><td>Render Services, Inc.</td><td>Hosting the app and its database</td><td>Frankfurt, Germany (EU). Render is a US company, so access from the USA (e.g. for support) can't be ruled out.</td></tr>
         <tr><td>Anthropic, PBC</td><td>AI processing of chat messages (section 3)</td><td>USA</td></tr>
+        <tr><td>Gravitystorm Limited (Thunderforest)</td><td>Map tiles when you open a climb's map. Your browser loads them directly, so Thunderforest sees your IP address and the map area shown (around the climb), not your start point.</td><td>United Kingdom</td></tr>
+        <tr><td>Storage provider for backups</td><td>Encrypted nightly backups of the database. They're encrypted on our server before upload, so the provider can't read them.</td><td>EU</td></tr>
         <tr><td>Garmin Ltd. and subsidiaries</td><td>Source of your Garmin data, when you connect it. Garmin processes your data under its own privacy policy.</td><td>Per Garmin's privacy policy</td></tr>
       </tbody>
     </table>
-    <p>Your account data, workouts and Garmin data are stored in the EU. Data sent to Anthropic for AI processing is processed in the USA. Transfers to the USA rely on the Swiss-U.S. and EU-U.S. Data Privacy Frameworks where the provider is certified, and otherwise on standard contractual clauses recognized by the Swiss Federal Data Protection and Information Commissioner and the European Commission.</p>
+    <p>Your account data, workouts and Garmin data are stored in the EU. Data sent to Anthropic for AI processing is processed in the USA. Switzerland and the EU recognize the United Kingdom as providing adequate data protection. Transfers to the USA rely on the Swiss-U.S. and EU-U.S. Data Privacy Frameworks where the provider is certified, and otherwise on standard contractual clauses recognized by the Swiss Federal Data Protection and Information Commissioner and the European Commission.</p>
 
     <h2>5. How long we keep data</h2>
     <ul>
       <li><strong>Account, settings, workouts and chats:</strong> until you delete them or your account.</li>
       <li><strong>Garmin data:</strong> until you disconnect Garmin or delete your account; then it's deleted from our database within 30 days.</li>
       <li><strong>Usage counters:</strong> up to 13 months, for cost tracking.</li>
+      <li><strong>Backups:</strong> each backup is deleted after 14 days, so deleted data is gone from backups within 14 days too.</li>
       <li><strong>Server logs:</strong> as long as our hosting provider keeps them, at most 30 days.</li>
     </ul>
 
-    <h2>6. Cookies</h2>
+    <h2>6. Cookies and browser storage</h2>
     <p>We use one cookie: a session cookie that keeps you signed in. It's needed for the service to work. We don't use analytics, tracking or advertising cookies.</p>
+    <p>The app also keeps a few things in your browser's local storage, only on your device: which sections you've folded open or closed, and your last start place for climb suggestions. We don't receive this data unless you ask for climbs. You can delete it at any time in your browser's settings.</p>
 
     <h2>7. Your rights</h2>
     <p>You can ask us for information about the data we hold about you, and to have it corrected, deleted or handed over in a common electronic format. You can object to processing and withdraw your consent to Garmin data processing at any time, by disconnecting Garmin or by emailing us. Under the GDPR, EU/EEA users also have the right to restrict processing (Art. 18). To exercise any of these rights, write to <a href="mailto:hello@vibegrind.app">hello@vibegrind.app</a>.</p>

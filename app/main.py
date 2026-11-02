@@ -810,10 +810,15 @@ def suggest_climbs(workout_id: int, body: ClimbsIn, user=Depends(current_user)):
     return climbs.recommend(workout, body.lat, body.lon, user["ftp"], user["weight_kg"], user["threshold_pace_s_per_km"])
 
 
-@app.get("/api/places")
-def places(q: str = "", user=Depends(current_user)):
-    """Start points for climb suggestions, by name (towns, villages and hamlets in the climb area)."""
-    return climbs.find_places(q[:60])
+class PlacesIn(BaseModel):
+    q: str = ""
+
+
+@app.post("/api/places")
+def places(body: PlacesIn, user=Depends(current_user)):
+    """Start points for climb suggestions, by name (towns, villages and hamlets in the climb area).
+    A POST, so what people type stays out of the request logs."""
+    return climbs.find_places(body.q[:60])
 
 
 @app.get("/api/integrations")
