@@ -230,14 +230,14 @@
             <p id="send-status" class="success small" hidden></p>
           </details>
           <details class="route-suggest fold" id="route-suggest" data-fold="outside" hidden>
-            <summary>Ride it outside <span class="muted small">How, and climbs near you</span></summary>
+            <summary><span id="outside-title">Ride it outside</span> <span class="muted small" id="outside-sub">How, and climbs near you</span></summary>
             <div id="climb-howto" class="climb-block first" hidden>
               <h4>Doing it outside</h4>
               <ul class="climb-plan" id="howto-list"></ul>
             </div>
             <p id="climb-note" class="muted small" hidden></p>
             <div class="climb-block" id="climb-finder">
-              <h4>Find climbs near you</h4>
+              <h4 id="finder-title">Find climbs near you</h4>
               <div class="route-controls">
                 <input id="route-start" class="route-start" type="search" list="place-list" placeholder="Where do you start? e.g. Goldau" autocomplete="off">
                 <datalist id="place-list"></datalist>
@@ -250,7 +250,7 @@
               <ol class="climb-list" id="climb-list"></ol>
             </div>
             <p id="route-error" class="error small" hidden></p>
-            <p class="muted tiny route-foot">Distances are rough, by road. Check a climb is open, legal and safe for you before you go. Climbs © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors, elevation © swisstopo, map © <a href="https://www.thunderforest.com/" target="_blank" rel="noopener">Thunderforest</a>.</p>
+            <p class="muted tiny route-foot"><span id="route-foot-check">Distances are rough, by road. Check a climb is open, legal and safe for you before you go.</span> <span id="route-foot-what">Climbs</span> © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors, elevation © swisstopo, map © <a href="https://www.thunderforest.com/" target="_blank" rel="noopener">Thunderforest</a>.</p>
           </details>
         </div>
       </section>

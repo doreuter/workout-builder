@@ -65,3 +65,21 @@ rebuild only asks Swisstopo about roads it hasn't seen.
 Next to it: `switzerland-roads.bin.gz`, the bigger roads as a packed graph for distances by road
 (`app.climbdb.pack_road_graph`), and `switzerland-places.json.gz`, the towns, villages and hamlets you can
 start from.
+
+## Running tracks
+
+`switzerland-tracks.json.gz` lists the oval athletics tracks of Switzerland (125 in the 2026-11-02
+build, 103 of them 400 m), found by `scripts/build_tracks.py` in the same OSM extract (about 2 min).
+The app suggests them for a run's intervals. Same licence: © OpenStreetMap contributors, ODbL.
+
+Only ovals go in: in Swiss OSM most `leisure=track` are 100 m sprint straights, and `sport=running`
+is mostly woodchip trails (Finnenbahn), which don't suit intervals. A track counts when it's tagged
+athletics (or untagged, or running but mapped as a ring with its inner edge, or synthetic) and shaped
+like an athletics oval. The lap length comes from lane 1: 400 m when it's 370–520 m round, else to 10 m.
+
+```json
+{"version": 1, "built": "2026-11-02", "sources": {...}, "tracks": [
+  {"id": "t0001", "name": "Stadion Letzigrund", "village": "Zürich", "school": false, "lap_m": 400,
+   "surface": "synthetic", "lanes": 8, "lit": true, "at": [47.3829, 8.5040], "ring": [[lat, lon], ...]}
+]}
+```

@@ -11,6 +11,7 @@ const state = {
   zwiftAvailable: false, // the server can reach the Zwift folder (app running on your own computer)
   browserZwift: false,   // this browser can save into a Zwift folder the user picked
   climbsAvailable: false, // the server has the climb database, so climb suggestions work
+  tracksAvailable: false, // ... and the running tracks, for runs
 };
 
 const EXAMPLES = [
@@ -244,6 +245,7 @@ async function startApp() {
   const integrations = await api("/api/integrations").catch(() => ({}));
   state.zwiftAvailable = !!integrations.zwift?.available;
   state.climbsAvailable = !!integrations.climbs;
+  state.tracksAvailable = !!integrations.tracks;
   state.tileKey = integrations.tile_key || null;
   state.device = deviceKind();
   state.browserZwift = !state.zwiftAvailable && ZwiftFolder.supported && !["phone", "tablet"].includes(state.device);
@@ -1386,19 +1388,36 @@ function renderActivities(acts) {
   }
 }
 
-// --- riding it outside: how-to and climbs ---------------------------------------------
-// For a ride's intervals: how to do them outside, and the best climbs near where you start. Click a
-// climb's name for a pop-up with its map, elevation profile and plan. Worked out on our server.
+// --- doing it outside: how-to, climbs for rides, tracks for runs ------------------------------
+// For a workout's intervals: how to do them outside, and the best climbs (rides) or running tracks (runs)
+// near where you start. Click a name for a pop-up with its map and plan. Worked out on our server.
+
+const OUTSIDE = {
+  cycling: { title: "Ride it outside", sub: "How, and climbs near you", finder: "Find climbs near you",
+             go: "Find climbs", near: "Climbs", what: "Climbs",
+             check: "Distances are rough, by road. Check a climb is open, legal and safe for you before you go." },
+  running: { title: "Run it outside", sub: "How, and tracks near you", finder: "Find a running track near you",
+             go: "Find tracks", near: "Tracks", what: "Tracks",
+             check: "Distances are rough. Check a track is open to the public before you go." },
+};
 
 function renderRoutePanel(workout) {
   const panel = $("#route-suggest");
-  panel.hidden = !(state.climbsAvailable && workout.sport === "cycling");
+  panel.hidden = !(workout.sport === "cycling" ? state.climbsAvailable : state.tracksAvailable);
   if (panel.hidden) return;
+  const words = OUTSIDE[workout.sport];
+  $("#outside-title").textContent = words.title;
+  $("#outside-sub").textContent = words.sub;
+  $("#finder-title").textContent = words.finder;
+  $("#route-go").textContent = words.go;
+  $("#route-foot-check").textContent = words.check;
+  $("#route-foot-what").textContent = words.what;
   for (const id of ["#climb-near", "#route-error"]) $(id).hidden = true;
   // "Doing it outside" needs no start place, so it's there as soon as you open the panel.
   const out = state.view.outside || {};
   const a = out.assumed || {};
-  const guess = [a.ftp ? `an FTP of ${a.ftp_w} W` : null, a.weight ? `${a.weight_kg} kg` : null].filter(Boolean);
+  const guess = [a.ftp ? `an FTP of ${a.ftp_w} W` : null, a.weight ? `${a.weight_kg} kg` : null,
+    a.pace ? `a threshold pace of ${Math.floor(a.pace_s / 60)}:${String(a.pace_s % 60).padStart(2, "0")} /km` : null].filter(Boolean);
   const note = out.message || (guess.length ? `Assuming ${guess.join(" and ")}; set yours in Settings for better numbers.` : "");
   $("#climb-note").textContent = note;
   $("#climb-note").hidden = !note;
@@ -1476,15 +1495,47 @@ $("#route-go").addEventListener("click", async () => {
   if (!start) return showRouteError("Pick where you start from the list as you type, or use 📍 for your location.");
   rememberStart(start);
   const btn = $("#route-go");
+  const run = state.view.workout.sport === "running";
   btn.disabled = true; btn.textContent = "Finding…";
   try {
-    renderClimbs(await api(`/api/workouts/${state.view.id}/climbs`, { method: "POST", body: { lat: start.lat, lon: start.lon } }), start);
+    const body = { lat: start.lat, lon: start.lon };
+    if (run) renderTracks(await api(`/api/workouts/${state.view.id}/tracks`, { method: "POST", body }), start);
+    else renderClimbs(await api(`/api/workouts/${state.view.id}/climbs`, { method: "POST", body }), start);
   } catch (err) {
     showRouteError(err.message);
   } finally {
-    btn.disabled = false; btn.textContent = "Find climbs";
+    btn.disabled = false; btn.textContent = OUTSIDE[run ? "running" : "cycling"].go;
   }
 });
+
+function renderTracks(r, start) {
+  const found = r.tracks || [];
+  $("#climb-near-title").textContent = start.label === "My location" ? "Tracks near you" : `Tracks near ${start.label}`;
+  $("#climb-list").replaceChildren(...found.map((t) => {
+    const name = el("button", { type: "button", class: "link climb-name" }, t.name);
+    name.addEventListener("click", () => openTrack(t));
+    const facts = [`about ${t.distance_km < 10 ? t.distance_km.toFixed(1) : Math.round(t.distance_km)} km away`,
+      `${t.lap_m} m lap`, t.surface === "synthetic" ? "synthetic" : t.surface, t.lit ? "floodlit" : null, t.school ? "school" : null];
+    const li = el("li");
+    li.append(name, el("span", { class: "muted small" }, ` · ${facts.filter(Boolean).join(" · ")}`), el("div", { class: "small" }, t.summary));
+    return li;
+  }));
+  $("#climb-near").hidden = !found.length;
+  if (!found.length && r.message) showRouteError(r.message);
+}
+
+function openTrack(t) {
+  $("#cd-title").textContent = t.name;
+  $("#cd-facts").textContent = `About ${t.distance_km.toFixed(1)} km away · ${t.lap_m} m lap`
+    + (t.surface ? ` · ${t.surface} surface` : "") + (t.lit ? " · floodlit" : "");
+  $("#cd-plan").replaceChildren(...t.plan.map((line) => el("li", {}, line)));
+  $("#cd-dir").href = `https://www.google.com/maps/dir/?api=1&travelmode=walking&destination=${t.at[0]},${t.at[1]}`;
+  $("#cd-dir").textContent = "Directions to the track";
+  $("#cd-profile").toggleAttribute("hidden", true);  // an <svg>: no .hidden property
+  $("#cd-gpx").hidden = true;
+  $("#climb-dialog").showModal();
+  drawClimbMap({ path: t.ring.map(([la, lo]) => [la, lo, 0, 0]), sections: [], track: true });
+}
 
 function renderClimbs(r, start) {
   const found = r.climbs || [];
@@ -1507,6 +1558,9 @@ function openClimb(c) {
     + `${c.avg}% average · top ${c.top_ele} m` + (c.lights ? ` · ${c.lights} traffic light${c.lights === 1 ? "" : "s"}` : "");
   $("#cd-plan").replaceChildren(...c.plan.map((line) => el("li", { class: /^\d+\. /.test(line) ? "step" : "" }, line)));
   $("#cd-dir").href = `https://www.google.com/maps/dir/?api=1&travelmode=bicycling&destination=${c.foot[0]},${c.foot[1]}`;
+  $("#cd-dir").textContent = "Directions to the bottom";
+  $("#cd-profile").toggleAttribute("hidden", false);
+  $("#cd-gpx").hidden = false;
   const file = c.name.replace(/[^\w-]+/g, "_").slice(0, 60) || "climb";
   $("#cd-gpx").href = "data:application/gpx+xml;charset=utf-8," + encodeURIComponent(routeGpx({ path: c.path }, c.name));
   $("#cd-gpx").download = `${file}.gpx`;
@@ -1532,6 +1586,11 @@ function drawClimbMap(c) {
   const layer = state.climbLayer;
   layer.clearLayers();
   const pts = c.path.map((p) => [p[0], p[1]]);
+  if (c.track) {  // a running track: just its outline
+    L.polygon(pts, { color: "#e8622c", weight: 4, fillOpacity: .08 }).addTo(layer);
+    setTimeout(() => { state.climbMap.invalidateSize(); state.climbMap.fitBounds(L.polyline(pts).getBounds(), { padding: [40, 40] }); }, 0);
+    return;
+  }
   L.polyline(pts, { color: "#6b7280", weight: 5, opacity: .85 }).addTo(layer);
   for (const [a, b] of c.sections) {  // where the efforts go
     L.polyline(c.path.filter((p) => p[3] >= a && p[3] <= b).map((p) => [p[0], p[1]]), { color: "#e8622c", weight: 7 }).addTo(layer);

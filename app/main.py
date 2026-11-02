@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import backup, climbs, config, db, garmin, howto, llm, mailer, maintenance, offsite, readiness, security, zwift
+from . import backup, climbs, config, db, garmin, howto, llm, mailer, maintenance, offsite, readiness, security, tracks, zwift
 from .auth import current_user, hash_password, start_session, verify_password
 from .exporters import ExportError, safe_filename, to_fit, to_zwo
 from .importers import MAX_ZWO_BYTES, ImportError_, from_fit, from_zwo
@@ -467,8 +467,9 @@ def _workout_view(user, row) -> dict:
         "source_filename": row["source_filename"],
         "planned_date": row["planned_date"],
         "howto": howto.describe(workout, user["ftp"], pace) if workout else None,
-        "outside": (climbs.doing_outside(workout, user["ftp"], user["weight_kg"], pace)
-                    if workout and workout["sport"] == "cycling" else None),
+        "outside": (None if not workout else
+                    climbs.doing_outside(workout, user["ftp"], user["weight_kg"], pace) if workout["sport"] == "cycling"
+                    else tracks.doing_outside(workout, pace)),
     }
 
 
@@ -810,6 +811,21 @@ def suggest_climbs(workout_id: int, body: ClimbsIn, user=Depends(current_user)):
     return climbs.recommend(workout, body.lat, body.lon, user["ftp"], user["weight_kg"], user["threshold_pace_s_per_km"])
 
 
+@app.post("/api/workouts/{workout_id}/tracks")
+def suggest_tracks(workout_id: int, body: ClimbsIn, user=Depends(current_user)):
+    """The nearest running tracks to a start point for this run's intervals, each with a plan in laps.
+    Worked out here; the start point isn't stored or sent anywhere."""
+    if not tracks.available():
+        raise HTTPException(503, "Track suggestions aren't set up on this server yet.")
+    row = _get_row(user, workout_id)
+    if not row["workout_json"]:
+        raise HTTPException(400, "This workout is empty.")
+    workout = json.loads(row["workout_json"])
+    if workout["sport"] != "running":
+        raise HTTPException(400, "Track suggestions are for runs.")
+    return tracks.recommend(workout, body.lat, body.lon, user["threshold_pace_s_per_km"])
+
+
 class PlacesIn(BaseModel):
     q: str = ""
 
@@ -824,7 +840,7 @@ def places(body: PlacesIn, user=Depends(current_user)):
 @app.get("/api/integrations")
 def integrations(user=Depends(current_user)):
     # The tile key is for the map under climb suggestions: a client-side key, restricted to our domain.
-    return {"zwift": zwift.status(), "climbs": climbs.available(),
+    return {"zwift": zwift.status(), "climbs": climbs.available(), "tracks": tracks.available(),
             "tile_key": os.environ.get("THUNDERFOREST_API_KEY") or None}
 
 
