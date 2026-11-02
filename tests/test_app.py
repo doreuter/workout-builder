@@ -589,8 +589,9 @@ def test_climb_suggestions_endpoint(client):
     rview = client.get(f"/api/workouts/{rwid}").json()
     assert rview["outside"] == {"howto": [], "message": main.tracks.NO_EFFORTS}  # a steady run: nothing for a track
     if main.tracks.available():
-        assert client.post(f"/api/workouts/{rwid}/tracks", json={"lat": 47.38, "lon": 8.54}).json()["tracks"] == []
-        assert client.post(f"/api/workouts/{wid}/tracks", json={"lat": 47.38, "lon": 8.54}).status_code == 400
+        r = client.post(f"/api/workouts/{rwid}/run-places", json={"lat": 47.38, "lon": 8.54}).json()
+        assert r["tracks"] == [] and r["hills"] == []
+        assert client.post(f"/api/workouts/{wid}/run-places", json={"lat": 47.38, "lon": 8.54}).status_code == 400
 
 
 def test_oversized_request_body_is_rejected(client):

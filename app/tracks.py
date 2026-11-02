@@ -11,6 +11,7 @@ import gzip
 import json
 from pathlib import Path
 
+from . import hills
 from .climbdb import haversine
 from .howto import minutes, structure, target
 
@@ -79,6 +80,9 @@ def doing_outside(workout: dict, pace: int | None) -> dict:
                  f"{target('running', i, None, p)} a lap takes about {_lap_time(400, i, p)}.")
     lines.append("Run anti-clockwise. Lane 1 is for the fastest runners: if others are training, use lane 2 "
                  "or further out, and jog the recoveries in the outer lanes.")
+    if hills.suits(workout, pace):
+        lines.append("Short efforts like these also work as hill repeats: up a steady 5–10 % hill by effort, "
+                     "jogging back down as the recovery.")
     steady = [(d, x) for kind, d, x in shape["after"] if kind == "steady"]
     if steady:
         d, x = max(steady)
@@ -115,11 +119,10 @@ def _name(t: dict) -> str:
 def _describe(t: dict, km: float, workout: dict, pace: int) -> dict:
     shape = structure(workout, pace)
     efs, lap = shape["efforts"], t["lap_m"]
-    lines = []
-    if km <= JOG_THERE_KM:
-        lines.append(f"Jog there as your warm-up: about {km:.1f} km, {minutes(km * pace / 0.65)} easy.")
-    else:
-        lines.append(f"About {km:.0f} km away: warm up with easy laps when you get there.")
+    # Close by, jogging there is the warm-up; further away the general tips already cover it.
+    jog = (f"Jog there as your warm-up: about {km:.1f} km, {minutes(km * pace / 0.65)} easy."
+           if km <= JOG_THERE_KM else None)
+    lines = [jog] if jog else []
     groups: list = []  # [count, metres, intensity, recovery s, set as a distance?]
     for (d, i, rec), m in zip(efs, shape["effort_m"]):
         dist = _metres(d, i, m, pace)
@@ -153,6 +156,6 @@ def _describe(t: dict, km: float, workout: dict, pace: int) -> dict:
     return {
         "id": t["id"], "name": _name(t), "distance_km": round(km, 1), "lap_m": lap,
         "surface": t["surface"], "lit": t["lit"], "school": t["school"],
-        "summary": lines[0], "plan": lines,
+        "summary": jog or "", "plan": lines,
         "at": t["at"], "ring": t["ring"],
     }

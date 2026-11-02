@@ -1388,16 +1388,16 @@ function renderActivities(acts) {
   }
 }
 
-// --- doing it outside: how-to, climbs for rides, tracks for runs ------------------------------
-// For a workout's intervals: how to do them outside, and the best climbs (rides) or running tracks (runs)
-// near where you start. Click a name for a pop-up with its map and plan. Worked out on our server.
+// --- doing it outside: how-to, climbs for rides, tracks and hills for runs ----------------------
+// For a workout's intervals: how to do them outside, and the best climbs (rides) or running tracks and
+// hills for repeats (runs) near where you start. Click a name for a pop-up with its map and plan. Worked out on our server.
 
 const OUTSIDE = {
   cycling: { title: "Ride it outside", sub: "How, and climbs near you", finder: "Find climbs near you",
              go: "Find climbs", near: "Climbs", what: "Climbs",
              check: "Distances are rough, by road. Check a climb is open, legal and safe for you before you go." },
-  running: { title: "Run it outside", sub: "How, and tracks near you", finder: "Find a running track near you",
-             go: "Find tracks", near: "Tracks", what: "Tracks",
+  running: { title: "Run it outside", sub: "How, and tracks and hills near you", finder: "Find a track or hill near you",
+             go: "Find places", near: "Tracks", what: "Tracks and hills",
              check: "Distances are rough. Check a track is open to the public before you go." },
 };
 
@@ -1412,7 +1412,7 @@ function renderRoutePanel(workout) {
   $("#route-go").textContent = words.go;
   $("#route-foot-check").textContent = words.check;
   $("#route-foot-what").textContent = words.what;
-  for (const id of ["#climb-near", "#route-error"]) $(id).hidden = true;
+  for (const id of ["#climb-near", "#hill-near", "#route-error"]) $(id).hidden = true;
   // "Doing it outside" needs no start place, so it's there as soon as you open the panel.
   const out = state.view.outside || {};
   const a = out.assumed || {};
@@ -1473,6 +1473,7 @@ $("#route-locate").addEventListener("click", () => {
 
 function showRouteError(msg) {
   $("#climb-near").hidden = true;
+  $("#hill-near").hidden = true;
   const e = $("#route-error");
   e.textContent = msg;
   e.hidden = false;
@@ -1499,7 +1500,7 @@ $("#route-go").addEventListener("click", async () => {
   btn.disabled = true; btn.textContent = "Finding…";
   try {
     const body = { lat: start.lat, lon: start.lon };
-    if (run) renderTracks(await api(`/api/workouts/${state.view.id}/tracks`, { method: "POST", body }), start);
+    if (run) renderTracks(await api(`/api/workouts/${state.view.id}/run-places`, { method: "POST", body }), start);
     else renderClimbs(await api(`/api/workouts/${state.view.id}/climbs`, { method: "POST", body }), start);
   } catch (err) {
     showRouteError(err.message);
@@ -1517,11 +1518,20 @@ function renderTracks(r, start) {
     const facts = [`about ${t.distance_km < 10 ? t.distance_km.toFixed(1) : Math.round(t.distance_km)} km away`,
       `${t.lap_m} m lap`, t.surface === "synthetic" ? "synthetic" : t.surface, t.lit ? "floodlit" : null, t.school ? "school" : null];
     const li = el("li");
-    li.append(name, el("span", { class: "muted small" }, ` · ${facts.filter(Boolean).join(" · ")}`), el("div", { class: "small" }, t.summary));
+    li.append(name, el("span", { class: "muted small" }, ` · ${facts.filter(Boolean).join(" · ")}`), ...(t.summary ? [el("div", { class: "small" }, t.summary)] : []));
     return li;
   }));
   $("#climb-near").hidden = !found.length;
-  if (!found.length && r.message) showRouteError(r.message);
+  const hills = r.hills || [];
+  $("#hill-list").replaceChildren(...hills.map((h) => {
+    const name = el("button", { type: "button", class: "link climb-name" }, h.name);
+    name.addEventListener("click", () => openClimb(h));
+    const li = el("li");
+    li.append(name, el("span", { class: "muted small" }, ` · ${h.summary}`));
+    return li;
+  }));
+  $("#hill-near").hidden = !hills.length;
+  if (!found.length && !hills.length && r.message) showRouteError(r.message);
 }
 
 function openTrack(t) {
@@ -1557,8 +1567,9 @@ function openClimb(c) {
   $("#cd-facts").textContent = `About ${c.distance_km} km away · ${(c.length_m / 1000).toFixed(1)} km · +${c.gain_m} m · `
     + `${c.avg}% average · top ${c.top_ele} m` + (c.lights ? ` · ${c.lights} traffic light${c.lights === 1 ? "" : "s"}` : "");
   $("#cd-plan").replaceChildren(...c.plan.map((line) => el("li", { class: /^\d+\. /.test(line) ? "step" : "" }, line)));
-  $("#cd-dir").href = `https://www.google.com/maps/dir/?api=1&travelmode=bicycling&destination=${c.foot[0]},${c.foot[1]}`;
-  $("#cd-dir").textContent = "Directions to the bottom";
+  // c.walk: a hill for running repeats, from the hills list
+  $("#cd-dir").href = `https://www.google.com/maps/dir/?api=1&travelmode=${c.walk ? "walking" : "bicycling"}&destination=${c.foot[0]},${c.foot[1]}`;
+  $("#cd-dir").textContent = c.walk ? "Directions to the start" : "Directions to the bottom";
   $("#cd-profile").toggleAttribute("hidden", false);
   $("#cd-gpx").hidden = false;
   const file = c.name.replace(/[^\w-]+/g, "_").slice(0, 60) || "climb";

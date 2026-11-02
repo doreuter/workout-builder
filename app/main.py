@@ -23,6 +23,7 @@ from starlette.background import BackgroundTask
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import backup, climbs, config, db, garmin, howto, llm, mailer, maintenance, offsite, readiness, security, tracks, zwift
+from . import hills
 from .auth import current_user, hash_password, start_session, verify_password
 from .exporters import ExportError, safe_filename, to_fit, to_zwo
 from .importers import MAX_ZWO_BYTES, ImportError_, from_fit, from_zwo
@@ -811,10 +812,10 @@ def suggest_climbs(workout_id: int, body: ClimbsIn, user=Depends(current_user)):
     return climbs.recommend(workout, body.lat, body.lon, user["ftp"], user["weight_kg"], user["threshold_pace_s_per_km"])
 
 
-@app.post("/api/workouts/{workout_id}/tracks")
-def suggest_tracks(workout_id: int, body: ClimbsIn, user=Depends(current_user)):
-    """The nearest running tracks to a start point for this run's intervals, each with a plan in laps.
-    Worked out here; the start point isn't stored or sent anywhere."""
+@app.post("/api/workouts/{workout_id}/run-places")
+def suggest_run_places(workout_id: int, body: ClimbsIn, user=Depends(current_user)):
+    """Where to run this run's intervals near a start point: the nearest running tracks (a plan in laps)
+    and, for short efforts, hills for repeats. Worked out here; the start point isn't stored or sent anywhere."""
     if not tracks.available():
         raise HTTPException(503, "Track suggestions aren't set up on this server yet.")
     row = _get_row(user, workout_id)
@@ -823,7 +824,12 @@ def suggest_tracks(workout_id: int, body: ClimbsIn, user=Depends(current_user)):
     workout = json.loads(row["workout_json"])
     if workout["sport"] != "running":
         raise HTTPException(400, "Track suggestions are for runs.")
-    return tracks.recommend(workout, body.lat, body.lon, user["threshold_pace_s_per_km"])
+    pace = user["threshold_pace_s_per_km"]
+    found = tracks.recommend(workout, body.lat, body.lon, pace)
+    found["hills"] = hills.recommend(workout, body.lat, body.lon, pace) if climbs.available() else []
+    if found["hills"]:
+        found.pop("message", None)  # no track close by, but hills
+    return found
 
 
 class PlacesIn(BaseModel):

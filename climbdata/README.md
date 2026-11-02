@@ -83,3 +83,9 @@ like an athletics oval. The lap length comes from lane 1: 400 m when it's 370–
    "surface": "synthetic", "lanes": 8, "lit": true, "at": [47.3829, 8.5040], "ring": [[lat, lon], ...]}
 ]}
 ```
+
+## Hills for running repeats
+
+Runs with short efforts (up to 6 min) also get hills for repeats. These come from the climb database
+above, not a file of their own: `app/hills.py` looks for a steady 4–12 % stretch on quiet roads (residential,
+farm and forest roads, no lights or stop signs) long enough for the effort uphill.

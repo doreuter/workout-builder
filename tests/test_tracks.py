@@ -66,3 +66,26 @@ def test_tracks_near_zurich(db):
     assert any("5 × 1'000 m: 2½ laps each" in line and "1:45 a lap" in line for line in plan)
     assert any("far side" in line for line in plan)  # half laps finish on the home straight
     assert tracks.recommend(RUN, 45.0, 6.0, 270)["tracks"] == []  # far from Switzerland
+
+
+HILLS = {"name": "8 × 90 s hills", "sport": "running", "steps": [
+    {"type": "warmup", "duration_s": 900, "intensity": 0.65},
+    {"type": "repeat", "count": 8, "steps": [{"type": "steady", "duration_s": 90, "intensity": 1.12},
+                                             {"type": "steady", "duration_s": 120, "intensity": 0.55}]},
+    {"type": "cooldown", "duration_s": 600, "intensity": 0.6}]}
+
+
+def test_hills_for_repeats():
+    from app import climbs, hills
+    if not climbs.available():
+        pytest.skip("climb database isn't built")
+    found = hills.recommend(HILLS, 47.1662, 8.5155, 270)  # Zug
+    assert len(found) == 4 and len({h["street"] for h in found}) == 4
+    for h in found:
+        assert 4 <= h["avg"] <= 12 and h["distance_km"] < 10
+        assert any("Do it 8 times" in line for line in h["plan"])
+        assert not any("' where" in line for line in h["plan"])  # the thousands separator stays in the number
+    assert 250 <= hills.up_metres(90, 1.12, 270, 7) <= 350  # 90 s hard uphill: about 300 m
+    long_efforts = {**HILLS, "steps": [{"type": "repeat", "count": 3, "steps": [
+        {"type": "steady", "duration_s": 600, "intensity": 0.95}, {"type": "steady", "duration_s": 180, "intensity": 0.6}]}]}
+    assert hills.recommend(long_efforts, 47.1662, 8.5155, 270) == []  # 10 min efforts: a track, not a hill
